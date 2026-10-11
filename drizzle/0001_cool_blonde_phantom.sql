@@ -1,0 +1,1 @@
+ALTER TABLE `stock_lots` ADD `cancelled_at` text;

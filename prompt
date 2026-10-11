@@ -1,0 +1,1823 @@
+# SISTEMA DE GESTIÓN INTEGRAL OFFLINE PARA EMPRESA DE PRODUCCIÓN DE ALIMENTOS
+
+## 1. ROL
+
+Actúa como un **equipo senior de desarrollo de software empresarial**, compuesto conceptualmente por:
+
+* Senior Software Architect
+* Senior Full-Stack Engineer
+* Senior Backend Engineer
+* Senior Frontend Engineer
+* Database Engineer
+* QA Engineer
+* UX/UI Designer especializado en aplicaciones empresariales
+* Business Analyst especializado en inventario, producción, costos y ventas
+
+No quiero una aplicación improvisada ni un CRUD genérico.
+
+Debes analizar primero el dominio del negocio, definir correctamente las reglas de negocio y después implementar el sistema.
+
+La aplicación será utilizada por una **empresa real de producción y venta de alimentos**, por lo que la prioridad absoluta es:
+
+1. Integridad de los datos.
+2. Exactitud de costos.
+3. Trazabilidad.
+4. Historial.
+5. Control de inventario.
+6. Consistencia financiera.
+7. Facilidad de uso para operaciones diarias.
+8. Funcionamiento completamente offline.
+9. Arquitectura mantenible.
+10. Evitar sobreingeniería innecesaria.
+
+---
+
+# 2. OBJETIVO DEL SISTEMA
+
+Construir una aplicación de escritorio **offline-first**, instalada en una PC de la empresa, con una **base de datos local**.
+
+El sistema debe administrar el flujo completo:
+
+```text
+COMPRAS
+   ↓
+MATERIAS PRIMAS
+   ↓
+RECETAS / FÓRMULAS
+   ↓
+PRODUCCIÓN DE MASAS
+   ↓
+MASAS EN INVENTARIO
+   ↓
+ELABORACIÓN DE PRODUCTOS
+   ↓
+PRODUCTOS TERMINADOS
+   ↓
+VENTAS
+   ↓
+CIERRE DIARIO
+   ↓
+COSTOS + INGRESOS + UTILIDAD
+   ↓
+DASHBOARD
+```
+
+El sistema debe permitir conocer en todo momento:
+
+* qué se compró;
+* cuánto costó;
+* cuánto inventario existe;
+* qué se produjo;
+* cuánto costó producirlo;
+* qué rendimiento tuvo cada producción;
+* qué productos terminados existen;
+* qué se vendió;
+* a qué precio se vendió;
+* cuánto ingresó;
+* cuánto costó lo vendido;
+* cuánto se ganó;
+* cuánto dinero se gastó;
+* diferencias de inventario;
+* resultado diario;
+* evolución histórica del negocio.
+
+---
+
+# 3. REQUISITO CRÍTICO: TODO DEBE SER HISTÓRICO
+
+Este es uno de los requisitos más importantes del sistema.
+
+**Nunca sobrescribas información histórica que afecte a operaciones anteriores.**
+
+Los costos de materias primas pueden variar constantemente.
+
+Los precios de venta también pueden variar.
+
+Las recetas pueden cambiar.
+
+Por lo tanto:
+
+* una compra conserva su precio original;
+* una producción conserva el costo calculado en ese momento;
+* una venta conserva el precio realmente aplicado;
+* una receta utilizada por una producción queda asociada a esa versión;
+* un cierre diario conserva sus valores;
+* los cambios posteriores no deben modificar resultados históricos.
+
+### Ejemplo
+
+El picadillo cuesta:
+
+```text
+01/10 → $1.50/kg
+04/10 → $1.80/kg
+07/10 → $2.10/kg
+```
+
+Una producción realizada el 04/10 debe conservar el costo correspondiente a los ingredientes utilizados en ese momento.
+
+Si el 10/10 el picadillo cuesta $2.50/kg, **la producción del 04/10 no cambia**.
+
+Lo mismo ocurre con los precios de venta.
+
+Si una hamburguesa se vendió:
+
+```text
+01/10 → $600
+05/10 → $620
+10/10 → $700
+```
+
+una venta realizada el 05/10 debe conservar:
+
+```text
+precio_unitario = $620
+```
+
+aunque el precio actual sea $700.
+
+---
+
+# 4. APLICACIÓN DESKTOP
+
+La aplicación debe ser de escritorio y funcionar completamente sin Internet.
+
+No depender de:
+
+* servidores externos;
+* APIs externas;
+* servicios cloud;
+* autenticación online;
+* bases de datos remotas;
+* conexión permanente a Internet.
+
+Debe funcionar en una PC local.
+
+## Stack preferido
+
+Utiliza una arquitectura moderna y estable, preferentemente:
+
+### Desktop
+
+Electron
+
+### Frontend
+
+React + Vite
+
+### Lenguaje
+
+JavaScript o TypeScript.
+
+**Preferiblemente TypeScript** si no introduce complejidad innecesaria.
+
+### UI
+
+Una librería moderna de componentes empresariales o un sistema propio consistente.
+
+### Base de datos
+
+SQLite.
+
+### ORM / acceso a datos
+
+Prisma, Drizzle u otra alternativa madura apropiada para SQLite.
+
+### Validación
+
+Zod o equivalente.
+
+### Estado
+
+Utilizar una solución sencilla y mantenible. No introducir Redux u otra herramienta pesada si realmente no es necesaria.
+
+---
+
+# 5. PRINCIPIOS DE ARQUITECTURA
+
+Utiliza una arquitectura modular.
+
+Separar claramente:
+
+```text
+UI
+↓
+Application / Use Cases
+↓
+Domain
+↓
+Repositories
+↓
+Database
+```
+
+Evitar que los componentes React hagan consultas directas a la base de datos.
+
+Evitar lógica de negocio importante dentro de componentes visuales.
+
+Evitar duplicación.
+
+Aplicar:
+
+* SOLID cuando aporte valor;
+* separación de responsabilidades;
+* composición;
+* validación;
+* manejo centralizado de errores;
+* transacciones;
+* repositorios;
+* servicios de dominio;
+* casos de uso;
+* tipos claros.
+
+Pero:
+
+**NO hacer Clean Architecture extrema ni sobreingeniería.**
+
+El proyecto debe ser entendible por otro desarrollador.
+
+---
+
+# 6. MÓDULOS PRINCIPALES
+
+La aplicación debe organizarse en los siguientes módulos:
+
+## Dashboard
+
+## Compras
+
+## Materias primas
+
+## Recetas / Fórmulas
+
+## Producción
+
+## Masas
+
+## Productos terminados
+
+## Ventas
+
+## Inventarios
+
+## Gastos
+
+## Finanzas
+
+## Cierres diarios
+
+## Reportes
+
+## Configuración
+
+## Usuarios / permisos
+
+## Auditoría
+
+---
+
+# 7. MATERIAS PRIMAS
+
+Cada materia prima debe tener:
+
+* ID
+* nombre
+* descripción
+* categoría
+* unidad de medida
+* unidad base
+* estado
+* stock actual
+* stock mínimo
+* costo actual
+* costo promedio
+* fecha de creación
+* fecha de actualización
+
+Ejemplos:
+
+```text
+Picadillo
+Harina
+Aceite
+Sal
+Condimentos
+Empaques
+```
+
+Los empaques deben poder manejarse como materias primas.
+
+---
+
+# 8. UNIDADES DE MEDIDA
+
+El sistema debe manejar correctamente unidades como:
+
+* kg
+* g
+* lb
+* litro
+* ml
+* unidad
+* paquete
+* caja
+
+Debe existir una unidad base por materia prima.
+
+Ejemplo:
+
+```text
+Picadillo → kg
+Aceite → litro
+Caja → unidad
+```
+
+Debe existir un sistema seguro de conversiones.
+
+Ejemplo:
+
+```text
+1 kg = 1000 g
+1 litro = 1000 ml
+```
+
+No permitir conversiones ambiguas.
+
+---
+
+# 9. COMPRAS
+
+Cada compra debe registrar:
+
+* proveedor;
+* fecha;
+* número/documento;
+* materias primas;
+* cantidad;
+* unidad;
+* precio unitario;
+* importe;
+* costo total;
+* observaciones.
+
+Ejemplo:
+
+```text
+Compra #00045
+
+Picadillo
+50 kg
+$1.50/kg
+
+Total: $75
+```
+
+Al confirmar la compra:
+
+1. aumentar inventario;
+2. registrar movimiento;
+3. registrar costo;
+4. actualizar costo promedio;
+5. guardar historial;
+6. generar trazabilidad.
+
+Todo debe ejecutarse dentro de una **transacción de base de datos**.
+
+---
+
+# 10. COSTO PROMEDIO
+
+Utilizar inicialmente **costo promedio ponderado** para valorar materias primas.
+
+Ejemplo:
+
+```text
+50 kg × $1.50 = $75
+40 kg × $1.80 = $72
+
+Total:
+90 kg
+$147
+
+Costo promedio:
+$1.6333/kg
+```
+
+Conservar siempre las compras originales.
+
+El costo promedio es una herramienta de valoración actual.
+
+**No reemplaza el historial.**
+
+---
+
+# 11. RECETAS / FÓRMULAS
+
+Una receta representa cómo se produce una masa.
+
+Ejemplo:
+
+### Masa de hamburguesas
+
+```text
+Picadillo → 30 kg
+Harina → 5 kg
+Aceite → 2 L
+Condimentos → 0.5 kg
+```
+
+La receta debe tener:
+
+* nombre;
+* código;
+* versión;
+* ingredientes;
+* cantidades;
+* unidad;
+* rendimiento esperado;
+* unidad de rendimiento;
+* instrucciones;
+* estado;
+* fecha de vigencia.
+
+---
+
+# 12. VERSIONADO DE RECETAS
+
+Nunca modificar una receta histórica utilizada en una producción.
+
+Ejemplo:
+
+```text
+Masa Hamburguesas v1
+Vigente 01/10 → 06/10
+
+Masa Hamburguesas v2
+Vigente desde 07/10
+```
+
+Una producción debe almacenar la versión exacta de la receta utilizada.
+
+Si la receta cambia posteriormente:
+
+**las producciones anteriores no cambian.**
+
+---
+
+# 13. PRODUCCIÓN
+
+Una producción representa una operación real.
+
+Ejemplo:
+
+```text
+Producción #00125
+
+Fecha:
+07/10/2026
+
+Receta:
+Masa de hamburguesas v2
+
+Ingredientes consumidos:
+Picadillo: 30 kg
+Harina: 5 kg
+Aceite: 2 L
+
+Rendimiento esperado:
+65 paquetes
+
+Rendimiento real:
+63 paquetes
+```
+
+Al confirmar una producción:
+
+### Disminuir
+
+Inventario de materias primas.
+
+### Crear/aumentar
+
+Inventario de masa.
+
+### Calcular
+
+Costo de producción.
+
+### Registrar
+
+Rendimiento esperado.
+
+### Registrar
+
+Rendimiento real.
+
+### Calcular
+
+Desviación.
+
+Todo debe ejecutarse dentro de una transacción.
+
+---
+
+# 14. COSTO DE PRODUCCIÓN
+
+El sistema debe calcular:
+
+```text
+Costo de materias primas
++
+Otros costos directos
+=
+Costo total de producción
+```
+
+Luego:
+
+```text
+Costo total
+÷
+Rendimiento real
+=
+Costo unitario real
+```
+
+El costo de producción debe quedar congelado en la operación.
+
+No recalcularlo retroactivamente utilizando precios actuales.
+
+---
+
+# 15. RENDIMIENTO
+
+Cada receta tendrá un rendimiento esperado.
+
+Ejemplo:
+
+```text
+Esperado: 65 paquetes
+Real: 63 paquetes
+```
+
+Calcular:
+
+```text
+Desviación = Real - Esperado
+```
+
+Y porcentaje de rendimiento.
+
+Esto permitirá detectar:
+
+* pérdidas;
+* desperdicio;
+* errores;
+* cambios en materias primas;
+* problemas de producción.
+
+---
+
+# 16. INVENTARIO DE MASAS
+
+Debe existir un inventario independiente para las masas.
+
+Ejemplo:
+
+```text
+Masa hamburguesas → 120 kg
+Masa croquetas → 80 kg
+```
+
+Cada movimiento debe tener:
+
+* fecha;
+* tipo;
+* cantidad;
+* origen;
+* destino;
+* costo;
+* referencia de operación.
+
+---
+
+# 17. PRODUCTOS TERMINADOS
+
+Los productos terminados son diferentes de las masas.
+
+Ejemplos:
+
+```text
+Hamburguesas
+Croquetas
+San Jacobos
+Mortadella
+Jamonada
+```
+
+Cada producto debe permitir definir:
+
+* nombre;
+* categoría;
+* presentación;
+* unidad de venta;
+* cantidad por paquete;
+* precio actual;
+* estado;
+* stock;
+* costo;
+* margen.
+
+Ejemplo:
+
+```text
+Hamburguesa
+
+Presentación:
+Paquete
+
+Contenido:
+4 unidades
+```
+
+---
+
+# 18. TRANSFORMACIÓN MASA → PRODUCTO
+
+El sistema debe permitir registrar cómo una masa genera productos.
+
+Ejemplo:
+
+```text
+Masa de hamburguesas
+        ↓
+65 paquetes
+        ↓
+4 hamburguesas por paquete
+```
+
+La producción debe registrar:
+
+* masa utilizada;
+* cantidad de masa;
+* productos generados;
+* cantidad;
+* rendimiento;
+* costo transferido.
+
+La transformación debe mantener trazabilidad.
+
+---
+
+# 19. INVENTARIO DE PRODUCTOS TERMINADOS
+
+Cada producción aumenta el inventario de productos terminados.
+
+Cada venta lo disminuye.
+
+Debe existir control permanente de:
+
+```text
+Inventario inicial
++
+Producción
+-
+Ventas
+± Ajustes
+=
+Inventario esperado
+```
+
+---
+
+# 20. PRECIOS DE VENTA
+
+Los precios pueden cambiar en cualquier momento.
+
+Por lo tanto, nunca depender únicamente de:
+
+```text
+product.currentPrice
+```
+
+para calcular ventas históricas.
+
+Mantener historial de precios.
+
+Ejemplo:
+
+```text
+Hamburguesa
+
+01/10 → $600
+05/10 → $620
+10/10 → $700
+```
+
+Una venta debe guardar el precio realmente aplicado.
+
+---
+
+# 21. VENTAS
+
+Cada venta debe registrar:
+
+* fecha;
+* hora;
+* productos;
+* cantidades;
+* precio unitario aplicado;
+* descuentos;
+* total;
+* método de pago;
+* usuario;
+* costo asociado;
+* utilidad.
+
+Ejemplo:
+
+```text
+Venta #000452
+
+Hamburguesas
+10 × $620
+
+Total:
+$6,200
+```
+
+El sistema debe descontar automáticamente el inventario.
+
+---
+
+# 22. COSTO DE VENTA
+
+El sistema debe conservar el costo asociado al producto vendido.
+
+No calcular:
+
+```text
+precio actual
+-
+costo actual
+```
+
+para una venta histórica.
+
+Debe utilizar el costo correspondiente al inventario/producto que realmente se está vendiendo, según la política de valoración definida.
+
+Documentar claramente la estrategia utilizada.
+
+---
+
+# 23. GASTOS
+
+Separar claramente:
+
+### Costos de producción
+
+de:
+
+### Gastos operativos
+
+Ejemplos de gastos:
+
+* transporte;
+* electricidad;
+* salarios;
+* mantenimiento;
+* alquiler;
+* comunicaciones;
+* otros.
+
+Cada gasto debe tener:
+
+* fecha;
+* categoría;
+* descripción;
+* importe;
+* método de pago;
+* responsable;
+* observaciones.
+
+---
+
+# 24. FINANZAS
+
+El sistema debe poder calcular:
+
+```text
+Ingresos por ventas
+-
+Costo de ventas
+=
+Utilidad bruta
+
+Utilidad bruta
+-
+Gastos operativos
+=
+Resultado operativo
+```
+
+Mostrar también:
+
+* margen bruto;
+* margen operativo;
+* ingresos diarios;
+* costos diarios;
+* gastos diarios;
+* utilidad diaria;
+* utilidad mensual;
+* evolución histórica.
+
+---
+
+# 25. CIERRE DIARIO
+
+Esta será una operación fundamental.
+
+Cada día debe poder cerrarse.
+
+El cierre debe mostrar:
+
+### Producción
+
+* qué se produjo;
+* cuánto;
+* costo.
+
+### Ventas
+
+* productos vendidos;
+* cantidades;
+* ingresos.
+
+### Inventarios
+
+* inventario inicial;
+* entradas;
+* salidas;
+* inventario esperado;
+* inventario físico;
+* diferencias.
+
+### Finanzas
+
+* ventas;
+* costo de ventas;
+* gastos;
+* utilidad.
+
+---
+
+# 26. CUADRE DE INVENTARIO
+
+Ejemplo:
+
+```text
+Inventario inicial:
+20 paquetes
+
+Producción:
+65 paquetes
+
+Ventas:
+42 paquetes
+
+Esperado:
+43 paquetes
+```
+
+El usuario cuenta físicamente:
+
+```text
+Inventario físico:
+41 paquetes
+```
+
+El sistema muestra:
+
+```text
+Diferencia:
+-2 paquetes
+```
+
+La diferencia debe quedar registrada.
+
+Nunca modificar silenciosamente el inventario para ocultar la diferencia.
+
+---
+
+# 27. CIERRE
+
+Una vez cerrado un día:
+
+* proteger sus resultados;
+* impedir modificaciones arbitrarias;
+* requerir permisos especiales para reabrir;
+* registrar quién reabrió;
+* registrar cuándo;
+* registrar qué se modificó.
+
+Debe existir auditoría.
+
+---
+
+# 28. DASHBOARD
+
+El dashboard principal debe estar diseñado para el dueño/administrador.
+
+Mostrar:
+
+### KPIs
+
+* Ventas de hoy
+* Costos de hoy
+* Utilidad bruta
+* Margen
+* Gastos
+* Resultado neto
+* Producción del día
+* Inventario total
+* Alertas de stock
+* Diferencias de inventario
+
+### Análisis
+
+* ventas por producto;
+* producción;
+* costos;
+* utilidad;
+* productos más vendidos;
+* productos más rentables;
+* evolución de costos;
+* evolución de precios;
+* evolución de ventas.
+
+---
+
+# 29. ALERTAS
+
+El sistema debe generar alertas para:
+
+* stock bajo;
+* materias primas agotadas;
+* productos terminados agotados;
+* costos aumentando significativamente;
+* margen reducido;
+* diferencias de inventario;
+* producción por debajo del rendimiento esperado;
+* cierres pendientes.
+
+---
+
+# 30. INVENTARIO COMO SISTEMA DE MOVIMIENTOS
+
+No modificar únicamente:
+
+```text
+stock = stock + cantidad
+```
+
+sin registrar el movimiento.
+
+Debe existir un ledger de inventario.
+
+Ejemplo:
+
+```text
+Movimiento #001
+
+Compra
++50 kg
+Picadillo
+
+Movimiento #002
+
+Producción
+-30 kg
+Picadillo
+
+Movimiento #003
+
+Ajuste
+-2 kg
+Picadillo
+```
+
+El stock actual debe poder reconstruirse a partir de movimientos.
+
+---
+
+# 31. AUDITORÍA
+
+Registrar operaciones importantes:
+
+* creación;
+* modificación;
+* eliminación lógica;
+* compras;
+* producción;
+* ventas;
+* ajustes;
+* cierres;
+* reaperturas;
+* cambios de precios;
+* cambios de recetas.
+
+Registrar:
+
+* usuario;
+* fecha;
+* hora;
+* operación;
+* entidad;
+* valores relevantes.
+
+No permitir eliminación física de operaciones financieras o de inventario críticas.
+
+Preferir cancelación/anulación con trazabilidad.
+
+---
+
+# 32. USUARIOS Y PERMISOS
+
+Crear roles como:
+
+### Administrador
+
+Acceso completo.
+
+### Producción
+
+Puede:
+
+* consultar recetas;
+* registrar producción;
+* consultar inventario relacionado.
+
+### Ventas
+
+Puede:
+
+* registrar ventas;
+* consultar productos;
+* consultar inventario de productos terminados.
+
+### Finanzas / Administración
+
+Puede:
+
+* compras;
+* gastos;
+* cierres;
+* reportes;
+* análisis financiero.
+
+Los permisos deben poder evolucionar.
+
+---
+
+# 33. BASE DE DATOS
+
+Antes de programar las pantallas, diseñar correctamente el modelo relacional.
+
+Como mínimo analizar entidades como:
+
+```text
+users
+roles
+permissions
+
+suppliers
+
+raw_materials
+units
+unit_conversions
+
+purchases
+purchase_items
+
+recipes
+recipe_versions
+recipe_items
+
+production_batches
+production_consumptions
+production_outputs
+
+mass_inventory
+finished_products
+
+product_transformations
+
+sales
+sale_items
+
+inventory_movements
+
+expenses
+
+price_history
+
+cost_history
+
+daily_closings
+
+inventory_adjustments
+
+audit_logs
+```
+
+No crear todas estas tablas automáticamente si el análisis demuestra que alguna debe dividirse, combinarse o modelarse de otra forma.
+
+Primero diseñar las relaciones y justificar las decisiones.
+
+---
+
+# 34. TRANSACCIONES
+
+Las operaciones críticas deben ser atómicas.
+
+Por ejemplo, registrar una producción debe hacer correctamente:
+
+```text
+BEGIN TRANSACTION
+
+Consumir materias primas
+Registrar movimientos
+Calcular costo
+Crear masa
+Registrar producción
+Actualizar inventarios
+
+COMMIT
+```
+
+Si algo falla:
+
+```text
+ROLLBACK
+```
+
+Nunca dejar el sistema en un estado parcialmente actualizado.
+
+Lo mismo aplica a:
+
+* compras;
+* producción;
+* transformación;
+* ventas;
+* ajustes;
+* cierres.
+
+---
+
+# 35. ELIMINACIONES
+
+No eliminar físicamente registros importantes.
+
+Preferir:
+
+```text
+active
+cancelled
+voided
+archived
+```
+
+según corresponda.
+
+Las operaciones históricas deben permanecer disponibles para auditoría.
+
+---
+
+# 36. MANEJO MONETARIO
+
+Nunca utilizar `float` para dinero.
+
+Utilizar una estrategia segura para valores monetarios:
+
+* decimal;
+* integer en unidades mínimas;
+* o la estrategia apropiada para SQLite.
+
+Definir claramente:
+
+* precisión;
+* redondeo;
+* moneda;
+* formato.
+
+---
+
+# 37. FECHAS
+
+Guardar fechas y horas consistentemente.
+
+Definir una estrategia única para:
+
+* fecha de operación;
+* fecha de creación;
+* fecha de actualización;
+* fecha de cierre.
+
+Evitar inconsistencias entre frontend y backend.
+
+---
+
+# 38. BACKUP
+
+Como es una aplicación offline, el backup es crítico.
+
+Implementar:
+
+### Backup manual
+
+El usuario puede generar una copia de la base de datos.
+
+### Backup automático
+
+Configurable, por ejemplo:
+
+```text
+diario
+```
+
+Mantener varias copias.
+
+Permitir restauración segura.
+
+Nunca sobrescribir la base de datos actual directamente sin validaciones.
+
+---
+
+# 39. UX/UI
+
+La interfaz debe parecer un **software empresarial profesional**, no una página web convertida en escritorio.
+
+Características:
+
+* moderna;
+* limpia;
+* rápida;
+* clara;
+* consistente;
+* responsive dentro del entorno desktop;
+* excelente jerarquía visual;
+* tablas profesionales;
+* filtros;
+* búsqueda;
+* formularios claros;
+* confirmaciones para operaciones críticas;
+* feedback inmediato.
+
+Priorizar productividad.
+
+El usuario debe poder registrar operaciones diarias rápidamente.
+
+---
+
+# 40. NAVEGACIÓN
+
+Utilizar una navegación lateral clara:
+
+```text
+Dashboard
+
+Operaciones
+├── Compras
+├── Producción
+├── Ventas
+└── Cierre diario
+
+Inventario
+├── Materias primas
+├── Masas
+└── Productos terminados
+
+Producción
+├── Recetas
+├── Producciones
+└── Rendimientos
+
+Finanzas
+├── Ingresos
+├── Costos
+├── Gastos
+└── Rentabilidad
+
+Reportes
+
+Configuración
+├── Usuarios
+├── Permisos
+├── Unidades
+└── Backup
+```
+
+Adaptar la navegación según el rol.
+
+---
+
+# 41. REPORTES
+
+Crear reportes útiles:
+
+### Inventario
+
+* existencias;
+* movimientos;
+* valorización;
+* diferencias.
+
+### Compras
+
+* compras por período;
+* proveedor;
+* materia prima;
+* evolución de precios.
+
+### Producción
+
+* producción por día;
+* producción por producto;
+* costos;
+* rendimiento;
+* desviaciones.
+
+### Ventas
+
+* ventas diarias;
+* ventas por producto;
+* ventas por período;
+* ingresos.
+
+### Rentabilidad
+
+* ingresos;
+* costo de ventas;
+* utilidad;
+* margen;
+* gastos.
+
+### Auditoría
+
+* operaciones;
+* usuarios;
+* modificaciones.
+
+---
+
+# 42. EXPORTACIÓN
+
+Permitir exportar reportes a formatos útiles, por ejemplo:
+
+* CSV
+* Excel
+* PDF
+
+Pero no introducir dependencias innecesarias.
+
+---
+
+# 43. VALIDACIONES
+
+Validar siempre:
+
+* cantidades positivas;
+* precios válidos;
+* stock suficiente;
+* unidades compatibles;
+* recetas válidas;
+* productos activos;
+* fechas válidas;
+* operaciones duplicadas;
+* cierres;
+* permisos.
+
+No confiar exclusivamente en validaciones del frontend.
+
+---
+
+# 44. MANEJO DE ERRORES
+
+Implementar manejo centralizado.
+
+Los errores deben ser:
+
+* claros para el usuario;
+* detallados para logs;
+* seguros;
+* sin exponer información interna innecesaria.
+
+Ejemplo:
+
+En lugar de:
+
+```text
+SQLite error SQLITE_CONSTRAINT...
+```
+
+mostrar:
+
+```text
+No se pudo registrar la producción porque
+el inventario de picadillo es insuficiente.
+```
+
+---
+
+# 45. TESTING
+
+Implementar pruebas para las reglas críticas.
+
+Especialmente:
+
+### Inventario
+
+```text
+Compra
+→ stock aumenta
+```
+
+```text
+Producción
+→ materias primas disminuyen
+→ masa aumenta
+```
+
+```text
+Venta
+→ productos terminados disminuyen
+```
+
+### Costos
+
+Verificar:
+
+* costo promedio;
+* costo de producción;
+* costo unitario;
+* costo histórico.
+
+### Precios
+
+Verificar que:
+
+```text
+precio antiguo ≠ precio actual
+```
+
+y que las ventas históricas mantengan su precio.
+
+### Cierres
+
+Verificar:
+
+```text
+inventario esperado
+vs
+inventario físico
+```
+
+### Transacciones
+
+Verificar rollback cuando una operación falla parcialmente.
+
+---
+
+# 46. DATOS DE DEMOSTRACIÓN
+
+Crear un seed/demo opcional con:
+
+```text
+Materias primas
+Recetas
+Productos
+Proveedores
+Compras
+Producciones
+Ventas
+Gastos
+```
+
+para poder probar el sistema de extremo a extremo.
+
+Los datos demo deben estar claramente identificados.
+
+---
+
+# 47. DESARROLLO POR FASES
+
+NO intentes construir toda la aplicación de una sola vez.
+
+Trabajar por fases.
+
+## Fase 1 — Análisis
+
+Antes de escribir código:
+
+* analizar el dominio;
+* definir actores;
+* definir procesos;
+* definir reglas;
+* identificar casos extremos;
+* diseñar modelo de datos.
+
+Entregar documentación antes de implementar.
+
+---
+
+## Fase 2 — Arquitectura
+
+Definir:
+
+* estructura del proyecto;
+* módulos;
+* capas;
+* base de datos;
+* relaciones;
+* transacciones;
+* estrategia de costos;
+* estrategia de inventario;
+* estrategia de auditoría.
+
+---
+
+## Fase 3 — Core
+
+Implementar:
+
+* SQLite;
+* migraciones;
+* entidades;
+* repositorios;
+* servicios;
+* transacciones;
+* inventario;
+* costos.
+
+---
+
+## Fase 4 — Compras
+
+Implementar completamente:
+
+```text
+Proveedores
+Materias primas
+Compras
+Inventario
+Historial de costos
+```
+
+---
+
+## Fase 5 — Producción
+
+Implementar:
+
+```text
+Recetas
+Versiones
+Producciones
+Masas
+Rendimientos
+Costos
+```
+
+---
+
+## Fase 6 — Productos terminados
+
+Implementar:
+
+```text
+Transformación
+Inventario
+Costos
+```
+
+---
+
+## Fase 7 — Ventas
+
+Implementar:
+
+```text
+Ventas
+Precios históricos
+Inventario
+Costo de venta
+Ingresos
+```
+
+---
+
+## Fase 8 — Finanzas y cierre
+
+Implementar:
+
+```text
+Gastos
+Cuadre
+Cierre diario
+Rentabilidad
+```
+
+---
+
+## Fase 9 — Dashboard y reportes
+
+Implementar los indicadores y reportes después de que las operaciones estén funcionando correctamente.
+
+---
+
+## Fase 10 — QA
+
+Probar escenarios reales completos:
+
+```text
+Comprar ingredientes
+↓
+Producir masa
+↓
+Generar productos
+↓
+Vender
+↓
+Cuadrar inventario
+↓
+Cerrar día
+↓
+Consultar rentabilidad
+```
+
+---
+
+# 48. REGLA DE ORO DEL DESARROLLO
+
+No modificar una parte del sistema sin comprobar cómo afecta:
+
+```text
+Inventario
+Costos
+Producción
+Ventas
+Finanzas
+Historial
+Cierres
+Auditoría
+```
+
+Una modificación aparentemente pequeña puede romper la consistencia financiera.
+
+---
+
+# 49. NO HACER
+
+No implementar:
+
+* microservicios;
+* Kubernetes;
+* cloud;
+* APIs externas;
+* arquitectura distribuida;
+* sistemas de mensajería;
+* event sourcing completo;
+* CQRS complejo;
+* infraestructura innecesaria;
+* dependencias de Internet.
+
+Es una aplicación local para una empresa real.
+
+La solución debe ser **robusta pero sencilla de mantener**.
+
+---
+
+# 50. CRITERIO DE CALIDAD
+
+Antes de considerar una funcionalidad terminada, debe cumplir:
+
+```text
+✓ Funciona offline
+✓ Tiene validaciones
+✓ Mantiene historial
+✓ Mantiene trazabilidad
+✓ Usa transacciones
+✓ No rompe inventarios
+✓ No rompe costos
+✓ Tiene manejo de errores
+✓ Tiene pruebas
+✓ Es mantenible
+✓ Tiene buena UX
+✓ Está documentada
+```
+
+---
+
+# 51. REGLA ESPECIAL PARA EL AGENTE
+
+No asumas información del negocio que no haya sido definida.
+
+Cuando encuentres una decisión de negocio que pueda cambiar el resultado financiero, **detente y solicítala antes de implementarla**.
+
+Ejemplos:
+
+* método exacto de valoración de inventario;
+* tratamiento de desperdicios;
+* tratamiento de devoluciones;
+* productos dañados;
+* ajustes;
+* gastos indirectos;
+* tratamiento de empaques;
+* costos laborales;
+* unidades de medida;
+* transformación de masas;
+* tratamiento de inventario negativo.
+
+Para decisiones puramente técnicas, elige la solución más simple, robusta y mantenible.
+
+---
+
+# 52. RESULTADO FINAL
+
+El producto final debe ser una aplicación de escritorio profesional capaz de controlar:
+
+```text
+                 ┌───────────────┐
+                 │    COMPRAS    │
+                 └───────┬───────┘
+                         ↓
+                 ┌───────────────┐
+                 │   INGREDIENTES│
+                 │   INVENTARIO  │
+                 └───────┬───────┘
+                         ↓
+                 ┌───────────────┐
+                 │   RECETAS     │
+                 └───────┬───────┘
+                         ↓
+                 ┌───────────────┐
+                 │   PRODUCCIÓN  │
+                 └───────┬───────┘
+                         ↓
+                 ┌───────────────┐
+                 │     MASAS     │
+                 └───────┬───────┘
+                         ↓
+                 ┌───────────────┐
+                 │   PRODUCTOS   │
+                 │   TERMINADOS  │
+                 └───────┬───────┘
+                         ↓
+                 ┌───────────────┐
+                 │    VENTAS     │
+                 └───────┬───────┘
+                         ↓
+                 ┌───────────────┐
+                 │ CIERRE DIARIO │
+                 └───────┬───────┘
+                         ↓
+                 ┌───────────────┐
+                 │  RENTABILIDAD │
+                 └───────────────┘
+```
+
+El sistema debe permitir responder con datos reales y trazables:
+
+> ¿Cuánto tenemos?
+
+> ¿Cuánto compramos?
+
+> ¿Cuánto nos costó?
+
+> ¿Qué producimos?
+
+> ¿Cuánto costó producirlo?
+
+> ¿Cuánto desperdiciamos?
+
+> ¿Cuánto vendimos?
+
+> ¿A qué precio?
+
+> ¿Cuánto nos costó lo vendido?
+
+> ¿Cuánto ganamos?
+
+> ¿Qué producto es más rentable?
+
+> ¿Cómo han evolucionado nuestros costos?
+
+> ¿Cómo han evolucionado nuestros precios?
+
+> ¿Qué ocurrió hoy?
+
+> ¿El inventario físico coincide con el sistema?
+
+> ¿El negocio está siendo rentable?
+
+La prioridad no es crear muchas funcionalidades. La prioridad es que **los números sean correctos, históricos, auditables y coherentes con lo que ocurre físicamente en la empresa**.
