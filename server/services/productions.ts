@@ -19,7 +19,7 @@ import { nextDocNumber } from "../domain/counters";
 import { assertValidBusinessDate, nowISO } from "../domain/dates";
 import { consumeFIFO, createLot } from "../domain/fifo";
 import { decMicro } from "../domain/zod-helpers";
-import { divRoundAway, formatCUP, microToDecimal, mulQtyPrice } from "../../shared/money";
+import { divRoundAway, formatCUP, microToDecimalTrim, mulQtyPrice } from "../../shared/money";
 import type { DB } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
 
@@ -36,7 +36,7 @@ export const productionInput = z.object({
 });
 export type ProductionInput = z.infer<typeof productionInput>;
 
-const fmt = (micro: number, unit: string) => `${microToDecimal(micro, 3)} ${unit}`;
+const fmt = (micro: number, unit: string) => `${microToDecimalTrim(micro, 3)} ${unit}`;
 const MICRO = 1_000_000;
 
 export interface ProductionConfirmResult {

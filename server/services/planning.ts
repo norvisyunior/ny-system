@@ -7,6 +7,7 @@
   finishedProducts,
   masses,
   rawMaterials,
+  transformations,
 } from "../../db/schema";
 import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -16,7 +17,7 @@ import { nextDocNumber } from "../domain/counters";
 import { assertValidBusinessDate } from "../domain/dates";
 import { availableStock, estimatedAvgCost } from "../domain/fifo";
 import { decMicro, divRoundAway, mulQtyPrice } from "../domain/zod-helpers";
-import { microToDecimal } from "../../shared/money";
+import { microToDecimal, microToDecimalTrim } from "../../shared/money";
 import type { DBOrTx } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
 
@@ -203,7 +204,7 @@ export function computePlanPreview(
     estimatedTotalCostMicro += line.estimatedCostMicro;
     if (line.missingMicro > 0) {
       warnings.push(
-        `Falta ${microToDecimal(line.missingMicro, 3)} ${line.unitId} de ${line.name}.`,
+        `Falta ${microToDecimalTrim(line.missingMicro, 3)} ${line.unitId} de ${line.name}.`,
       );
     }
     if (line.availableMicro <= 0) {
@@ -411,5 +412,44 @@ export function annulPlan(db: DBOrTx, id: number, reason: string) {
       details: { reason },
     });
     return { id, status: "anulada" as const };
+  });
+}
+
+/** Elimina un plan de forma independiente: desvincula producciones/terminaciones y lo borra. */
+export function deletePlan(db: DBOrTx, id: number) {
+  return db.transaction((tx) => {
+    const plan = tx.select().from(productionPlans).where(eq(productionPlans.id, id)).get();
+    if (!plan) throw notFoundError("Plan de producción");
+    const number = String(plan.number).padStart(5, "0");
+    const detachedBatches =
+      tx.select({ n: sql<number>`COUNT(*)` }).from(productionBatches)
+        .where(eq(productionBatches.planId, id)).get()?.n ?? 0;
+    const detachedTransformations =
+      tx.select({ n: sql<number>`COUNT(*)` }).from(transformations)
+        .where(eq(transformations.planId, id)).get()?.n ?? 0;
+    // El plan es solo informativo: se desvincula todo lo que apunte a él.
+    tx.update(productionBatches)
+      .set({ planId: null })
+      .where(eq(productionBatches.planId, id))
+      .run();
+    tx.update(transformations)
+      .set({ planId: null })
+      .where(eq(transformations.planId, id))
+      .run();
+    tx.delete(productionPlans).where(eq(productionPlans.id, id)).run();
+    logAudit(tx, {
+      action: "plan.delete",
+      entityType: "production_plan",
+      entityId: id,
+      summary: `Plan #${number} eliminado`,
+      details: {
+        number: plan.number,
+        planDate: plan.planDate,
+        status: plan.status,
+        detachedBatches,
+        detachedTransformations,
+      },
+    });
+    return { id, deleted: true as const };
   });
 }

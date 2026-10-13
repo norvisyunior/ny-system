@@ -18,7 +18,7 @@ import {
   nowISO,
 } from "../domain/dates";
 import { mulQtyPrice } from "../domain/zod-helpers";
-import { formatCUP, microToDecimal } from "../../shared/money";
+import { formatCUP, microToDecimalTrim } from "../../shared/money";
 import type { DBOrTx } from "../domain/types";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -267,7 +267,7 @@ export function closeDay(db: DBOrTx, input: CloseDayInput) {
       const diffMicro = countedMicro - item.expectedMicro;
       if (diffMicro !== 0 && (line.reason ?? "").trim().length < 3) {
         throw domainError(
-          `${item.name}: hay una diferencia de ${microToDecimal(diffMicro, 3)} ${item.unitId}; indique el motivo.`,
+          `${item.name}: hay una diferencia de ${microToDecimalTrim(diffMicro, 3)} ${item.unitId}; indique el motivo.`,
         );
       }
       const diffValueMicro = mulQtyPrice(diffMicro, item.avgCostMicro);

@@ -50,6 +50,14 @@ export function microQtyToDecimal(qtyMicro: number, decimals = 3): string {
   return microToDecimal(qtyMicro, decimals);
 }
 
+/** Como microToDecimal pero sin ceros sobrantes: 215.000 → "215", 1.500 → "1.5".
+ *  Uso en textos de cantidad para que no se lean como miles ("215.000" = 215 mil). */
+export function microToDecimalTrim(micro: number, decimals = 3): string {
+  const s = microToDecimal(micro, decimals);
+  if (!s.includes(".")) return s;
+  return s.replace(/0+$/, "").replace(/\.$/, "");
+}
+
 /**
  * Multiplica cantidad × precio y divide por 1e6 con redondeo.
  * qtyMicro: micro-unidades de la unidad base.

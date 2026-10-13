@@ -14,7 +14,7 @@ import { nextDocNumber } from "../domain/counters";
 import { assertValidBusinessDate, nowISO } from "../domain/dates";
 import { consumeFIFO } from "../domain/fifo";
 import { decMicro, mulQtyPrice, divRoundAway } from "../domain/zod-helpers";
-import { formatCUP, microToDecimal } from "../../shared/money";
+import { formatCUP, microToDecimalTrim } from "../../shared/money";
 import type { DBOrTx } from "../domain/types";
 
 const PAYMENT_METHODS = ["efectivo", "tarjeta", "transferencia", "otro"] as const;
@@ -88,7 +88,7 @@ export function confirmSale(db: DBOrTx, input: SaleInput) {
         item.productId,
         item.qty,
         prod.name,
-        (m) => `${microToDecimal(m, 3)} ${prod.saleUnitId}`,
+        (m) => `${microToDecimalTrim(m, 3)} ${prod.saleUnitId}`,
       );
       let lineCostMicro = 0;
       for (const c of consumed) lineCostMicro += c.lineCostMicro;
@@ -181,13 +181,14 @@ export interface SaleListRow {
   totalCostMicro: number;
   status: string;
   itemsCount: number;
+  productsSummary: string | null;
 }
 
 export function listSales(db: DBOrTx, opts: { from?: string; to?: string } = {}): SaleListRow[] {
   const conds = [];
   if (opts.from) conds.push(sql`${sales.saleDate} >= ${opts.from}`);
   if (opts.to) conds.push(sql`${sales.saleDate} <= ${opts.to}`);
-  return db
+  const rows = db
     .select({
       id: sales.id,
       number: sales.number,
@@ -204,6 +205,32 @@ export function listSales(db: DBOrTx, opts: { from?: string; to?: string } = {})
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(sales.saleDate), desc(sales.number))
     .all();
+
+  if (rows.length === 0) return [];
+
+  const saleIds = new Set(rows.map((r) => r.id));
+  const itemRows = db
+    .select({
+      saleId: saleItems.saleId,
+      name: finishedProducts.name,
+    })
+    .from(saleItems)
+    .innerJoin(finishedProducts, eq(finishedProducts.id, saleItems.productId))
+    .orderBy(asc(saleItems.id))
+    .all();
+
+  const bySale = new Map<number, string[]>();
+  for (const ir of itemRows) {
+    if (!saleIds.has(ir.saleId)) continue;
+    const list = bySale.get(ir.saleId);
+    if (list) list.push(ir.name);
+    else bySale.set(ir.saleId, [ir.name]);
+  }
+
+  return rows.map((r) => ({
+    ...r,
+    productsSummary: (bySale.get(r.id) ?? []).join(" · ") || null,
+  }));
 }
 
 export function getSaleDetail(db: DBOrTx, id: number) {

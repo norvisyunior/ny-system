@@ -191,6 +191,8 @@ export function PlanningPage() {
   const [preview, setPreview] = useState<PlanPreview | null>(null);
   const [detail, setDetail] = useState<PlanDetail | null>(null);
   const [annulReason, setAnnulReason] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; number: number } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
@@ -285,6 +287,23 @@ export function PlanningPage() {
     }
   };
 
+  const askDelete = (target: { id: number; number: number }) => {
+    setDeleteError(null);
+    setDeleteTarget(target);
+  };
+
+  const remove = async () => {
+    if (!deleteTarget) return;
+    try {
+      await api.delete(`/plans/${deleteTarget.id}`);
+      if (detail?.id === deleteTarget.id) setDetail(null);
+      setDeleteTarget(null);
+      load();
+    } catch (e) {
+      setDeleteError((e as ApiError).message);
+    }
+  };
+
   const filtered = rows.filter(
     (r) =>
       (r.productName ?? "").toLowerCase().includes(q.toLowerCase()) ||
@@ -371,9 +390,14 @@ export function PlanningPage() {
                       )}
                     </td>
                     <td className="text-right">
-                      <button className="btn btn-secondary" onClick={() => openDetail(r.id)}>
-                        Ver
-                      </button>
+                      <div className="flex justify-end gap-1.5">
+                        <button className="btn btn-secondary" onClick={() => openDetail(r.id)}>
+                          Ver
+                        </button>
+                        <button className="btn btn-danger" onClick={() => askDelete(r)}>
+                          Eliminar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -632,9 +656,49 @@ export function PlanningPage() {
             </div>
           )}
 
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-4">
+            <div className="text-sm font-bold text-red-800">Eliminar plan</div>
+            <p className="mb-2 text-xs text-red-700">
+              Borra el plan definitivamente; las producciones y terminaciones que estaban
+              vinculadas quedan desvinculadas (la eliminación queda en la auditoría).
+            </p>
+            <button
+              className="btn btn-danger"
+              onClick={() => {
+                const target = { id: detail.id, number: detail.number };
+                setDetail(null);
+                askDelete(target);
+              }}
+            >
+              Eliminar plan
+            </button>
+          </div>
+
           <div className="mt-4 flex justify-end">
             <button className="btn btn-secondary" onClick={() => setDetail(null)}>
               Cerrar
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {deleteTarget && (
+        <Modal title="Eliminar plan" onClose={() => setDeleteTarget(null)}>
+          <p className="mb-3 text-sm text-slate-600">
+            ¿Eliminar el plan <strong>#{fmtDocNumber(deleteTarget.number)}</strong>? Esta acción lo
+            borra definitivamente y no se puede deshacer.
+          </p>
+          {deleteError && (
+            <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {deleteError}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>
+              Cancelar
+            </button>
+            <button className="btn btn-danger" onClick={remove}>
+              Eliminar
             </button>
           </div>
         </Modal>

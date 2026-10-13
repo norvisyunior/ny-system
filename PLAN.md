@@ -172,3 +172,12 @@ verificarse contra Inventario · Costos · Producción · Ventas · Finanzas · 
   entrada duplicada de Operaciones→Producción retirada, ModulePage sin "fase M7" (M7 cerrado)
   y con puntero a la pantalla equivalente, corrección de pérdida de datos al editar materiales
   (descripción) y masas/productos (stock mínimo), subtítulo de respaldos sin "datos de ejemplo".
+- 2026-10-11: **UI Finanzas completada** — las rutas `/finanzas/ingresos`, `/finanzas/costos` y
+  `/finanzas/rentabilidad` dejaron de ser stubs (`ModulePage`) y ahora son pantallas reales:
+  `IngresosPage` (KPIs de cobro, ticket promedio, ingresos por día y por método de pago, detalle
+  de ventas), `CostosPage` (COGS PEPS, compras por proveedor, costo de producción por receta,
+  costo de ventas por producto) y `ProfitabilityPage` (P&L del período con bruto/neto y % de
+  margen, evolución diaria, tabla día a día con totales y rentabilidad por producto). Nuevo
+  reporte backend `rentabilidad-productos` (margen por producto en un rango, ventas confirmadas)
+  y utilidades compartidas `Kpi`/`fmtPct` en `ui.tsx` (reutilizadas por el Dashboard).
+  Verificación: typecheck server+client ✅, Vitest 58/58 ✅, `vite build` ✅, API en vivo ✅.

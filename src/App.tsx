@@ -1,6 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
-import { ModulePage } from "./components/PageHeader";
 import { DashboardPage } from "./pages/DashboardPage";
 import { SuppliersPage } from "./pages/SuppliersPage";
 import { MaterialsPage } from "./pages/MaterialsPage";
@@ -14,7 +13,10 @@ import { YieldsPage } from "./pages/YieldsPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { TransformationsPage } from "./pages/TransformationsPage";
 import { SalesPage } from "./pages/SalesPage";
+import { IngresosPage } from "./pages/IngresosPage";
+import { CostosPage } from "./pages/CostosPage";
 import { ExpensesPage } from "./pages/ExpensesPage";
+import { ProfitabilityPage } from "./pages/ProfitabilityPage";
 import { ClosingsPage } from "./pages/ClosingsPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { BackupPage } from "./pages/BackupPage";
@@ -45,37 +47,10 @@ export default function App() {
           <Route path="/produccion/producciones" element={<ProductionsPage />} />
           <Route path="/produccion/rendimientos" element={<YieldsPage />} />
 
-          <Route
-            path="/finanzas/ingresos"
-            element={
-              <ModulePage
-                title="Ingresos"
-                subtitle="Ventas y cobros por período"
-                hint="los ingresos se registran en Operaciones → Ventas y se consolidan en el cierre diario."
-              />
-            }
-          />
-          <Route
-            path="/finanzas/costos"
-            element={
-              <ModulePage
-                title="Costos"
-                subtitle="Costos de ventas y producción"
-                hint="el costo de ventas aparece en el cierre diario y en Reportes → Rentabilidad."
-              />
-            }
-          />
+          <Route path="/finanzas/ingresos" element={<IngresosPage />} />
+          <Route path="/finanzas/costos" element={<CostosPage />} />
           <Route path="/finanzas/gastos" element={<ExpensesPage />} />
-          <Route
-            path="/finanzas/rentabilidad"
-            element={
-              <ModulePage
-                title="Rentabilidad"
-                subtitle="Utilidad, márgenes y evolución"
-                hint="la rentabilidad del período está en Reportes → Rentabilidad."
-              />
-            }
-          />
+          <Route path="/finanzas/rentabilidad" element={<ProfitabilityPage />} />
 
           <Route path="/reportes" element={<ReportsPage />} />
           <Route path="/configuracion/proveedores" element={<SuppliersPage />} />

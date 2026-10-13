@@ -19,12 +19,12 @@ import {
 } from "../../db/schema";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { todayISO } from "../domain/dates";
-import { microToDecimal } from "../../shared/money";
+import { microToDecimal, microToDecimalTrim } from "../../shared/money";
 import type { DBOrTx } from "../domain/types";
 
 /** Cantidad micro → texto sin ceros sobrantes (igual que fmtQty de la UI). */
 function qtyText(micro: number): string {
-  return microToDecimal(micro, 3).replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m));
+  return microToDecimalTrim(micro, 3);
 }
 
 export type ReportName =
@@ -34,6 +34,7 @@ export type ReportName =
   | "produccion"
   | "ventas"
   | "rentabilidad"
+  | "rentabilidad-productos"
   | "auditoria";
 
 export const REPORT_NAMES: ReportName[] = [
@@ -43,6 +44,7 @@ export const REPORT_NAMES: ReportName[] = [
   "produccion",
   "ventas",
   "rentabilidad",
+  "rentabilidad-productos",
   "auditoria",
 ];
 
@@ -467,6 +469,67 @@ function rentabilidadReport(db: DBOrTx, range: { from: string; to: string }): Re
   };
 }
 
+function rentabilidadProductosReport(db: DBOrTx, range: { from: string; to: string }): ReportResult {
+  const rows = db
+    .select({
+      producto: finishedProducts.name,
+      categoria: finishedProducts.category,
+      unidad: finishedProducts.saleUnitId,
+      cantidad: sql<number>`COALESCE(SUM(${saleItems.qtyMicro}), 0)`,
+      ventas: sql<number>`COALESCE(SUM(${saleItems.lineTotalMicro}), 0)`,
+      costo: sql<number>`COALESCE(SUM(${saleItems.lineCostMicro}), 0)`,
+    })
+    .from(saleItems)
+    .innerJoin(sales, eq(saleItems.saleId, sales.id))
+    .innerJoin(finishedProducts, eq(saleItems.productId, finishedProducts.id))
+    .where(
+      and(
+        eq(sales.status, "confirmada"),
+        sql`${sales.saleDate} >= ${range.from}`,
+        sql`${sales.saleDate} <= ${range.to}`,
+      ),
+    )
+    .groupBy(finishedProducts.id, finishedProducts.name, finishedProducts.category, finishedProducts.saleUnitId)
+    .orderBy(sql`SUM(${saleItems.lineTotalMicro}) DESC`)
+    .all();
+
+  const pct = (part: number, whole: number): number =>
+    whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0;
+
+  return {
+    name: "rentabilidad-productos",
+    title: "Rentabilidad por producto (ventas confirmadas)",
+    from: range.from,
+    to: range.to,
+    columns: [
+      { key: "producto", label: "Producto" },
+      { key: "categoria", label: "Categoría" },
+      { key: "unidad", label: "Unidad" },
+      { key: "cantidad", label: "Vendido", fmt: "qty", align: "num" },
+      { key: "ventas", label: "Ingresos ($)", fmt: "money", align: "num" },
+      { key: "costo", label: "Costo ($)", fmt: "money", align: "num" },
+      { key: "margen", label: "Margen ($)", fmt: "money", align: "num" },
+      { key: "margenPct", label: "Margen (%)", align: "num" },
+    ],
+    rows: rows.map((r) => {
+      const ventas = num(r.ventas);
+      const costo = num(r.costo);
+      const margen = ventas - costo;
+      return {
+        producto: r.producto,
+        categoria: r.categoria ?? "—",
+        unidad: r.unidad,
+        cantidad: num(r.cantidad),
+        ventas,
+        costo,
+        margen,
+        margenPct: pct(margen, ventas),
+      };
+    }),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 function auditoriaReport(db: DBOrTx, range: { from: string; to: string }): ReportResult {
   const rows = db
     .select({
@@ -516,6 +579,8 @@ export function buildReport(db: DBOrTx, name: string, opts: ReportRange = {}): R
       return ventasReport(db, defaultRange(opts));
     case "rentabilidad":
       return rentabilidadReport(db, defaultRange(opts));
+    case "rentabilidad-productos":
+      return rentabilidadProductosReport(db, defaultRange(opts));
     case "auditoria":
       return auditoriaReport(db, defaultRange(opts));
     default:
@@ -530,7 +595,7 @@ export function toCsv(report: ReportResult): string {
   const format = (col: ReportColumn, value: unknown): string => {
     if (value === null || value === undefined) return "";
     if (col.fmt === "money") return microToDecimal(num(value), 2);
-    if (col.fmt === "qty") return microToDecimal(num(value), 3);
+    if (col.fmt === "qty") return qtyText(num(value));
     return String(value);
   };
   const header = report.columns.map((c) => esc(c.label)).join(",");

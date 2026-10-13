@@ -21,7 +21,7 @@ import { nextDocNumber } from "../domain/counters";
 import { assertValidBusinessDate, nowISO } from "../domain/dates";
 import { consumeFIFO, createLot } from "../domain/fifo";
 import { decMicro, divRoundAway, mulQtyPrice } from "../domain/zod-helpers";
-import { formatCUP, microToDecimal } from "../../shared/money";
+import { formatCUP, microToDecimal, microToDecimalTrim } from "../../shared/money";
 import type { DBOrTx } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
 
@@ -238,7 +238,7 @@ export function confirmTransformation(
       input.massId,
       input.massQty,
       mass.name,
-      (m) => `${microToDecimal(m, 3)} ${mass.unitId}`,
+      (m) => `${microToDecimalTrim(m, 3)} ${mass.unitId}`,
     );
     let totalCostMicro = 0;
     for (const c of consumed) {
@@ -295,7 +295,7 @@ export function confirmTransformation(
         const qtyBase = catalog.toBase(totalItemUnit, item.unitId, mat.unitId);
         if (qtyBase <= 0) continue;
         const mats = consumeFIFO(tx, "raw", mat.id, qtyBase, mat.name, (m) =>
-          `${microToDecimal(m, 3)} ${mat.unitId}`,
+          `${microToDecimalTrim(m, 3)} ${mat.unitId}`,
         );
         for (const c of mats) {
           totalCostMicro += c.lineCostMicro;
@@ -401,7 +401,7 @@ export function confirmTransformation(
       entityId: tf.id,
       summary:
         `Terminación #${String(number).padStart(5, "0")}: ` +
-        `${microToDecimal(input.massQty, 3)} ${mass.unitId} de ${mass.name} → ` +
+        `${microToDecimalTrim(input.massQty, 3)} ${mass.unitId} de ${mass.name} → ` +
         `${microToDecimal(realPackagesMicro, 0)} paquetes` +
         (recipeMode ? ` (esperados ${microToDecimal(expectedPackagesMicro, 0)})` : "") +
         `, costo ${formatCUP(totalCostMicro)}`,

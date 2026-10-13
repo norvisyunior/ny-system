@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   annulPlan,
   createPlan,
+  deletePlan,
   getPlanDetail,
   listPlans,
   planInput,
@@ -44,4 +45,9 @@ plansRouter.post("/:id/annul", (req, res) => {
   const { id } = idParam.parse(req.params);
   const { reason } = annulBody.parse(req.body);
   res.json({ ok: true, data: annulPlan(handle(req).db, id, reason) });
+});
+
+plansRouter.delete("/:id", (req, res) => {
+  const { id } = idParam.parse(req.params);
+  res.json({ ok: true, data: deletePlan(handle(req).db, id) });
 });

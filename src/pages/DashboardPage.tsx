@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import { Badge, Callout, ErrorAlert, FlowGuide, fmtMoney, fmtQty, todayISO } from "../components/ui";
+import { Badge, Callout, ErrorAlert, FlowGuide, Kpi, fmtMoney, fmtQty, todayISO } from "../components/ui";
 
 interface StockAlert {
   itemType: string;
@@ -249,38 +249,6 @@ export function DashboardPage() {
         <div className="card p-6 text-sm text-slate-500">Cargando indicadores…</div>
       )}
       <div className="mt-3 text-xs text-slate-400">Fecha de referencia: {todayISO()}</div>
-    </div>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  sub,
-  muted,
-  tone,
-  big,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  muted?: boolean;
-  tone?: "green" | "red";
-  big?: boolean;
-}) {
-  const color =
-    tone === "red"
-      ? "text-red-600"
-      : tone === "green"
-        ? "text-emerald-700"
-        : muted
-          ? "text-slate-500"
-          : "text-slate-900";
-  return (
-    <div className="card p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={`${big ? "text-2xl" : "text-xl"} font-bold ${color}`}>{value}</div>
-      {sub && <div className="text-xs text-slate-400">{sub}</div>}
     </div>
   );
 }

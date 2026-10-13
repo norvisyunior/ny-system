@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import { Badge, Callout, ErrorAlert, FlowGuide, Modal, fmtMoney, todayISO } from "../components/ui";
-import { microToDecimal } from "@shared/money";
+import { Badge, ErrorAlert, FlowGuide, Modal, fmtMoney, todayISO } from "../components/ui";
+import { microToDecimalTrim } from "@shared/money";
 
 type ItemType = "raw" | "mass" | "product";
 
@@ -66,8 +66,6 @@ const ITEM_TYPE_LABELS: Record<ItemType, string> = {
 
 const key = (it: PreviewItem) => `${it.itemType}:${it.itemId}`;
 
-const trimZeros = (s: string) => (s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s);
-
 function parseMicro(raw: string): number | null {
   const t = raw.trim();
   if (!/^\d+(\.\d{1,6})?$/.test(t)) return null;
@@ -101,7 +99,7 @@ export function ClosingsPage() {
         const pv = await api.get<Preview>(`/closings/preview?date=${d}`);
         setPreview(pv);
         const pre: Record<string, string> = {};
-        for (const it of pv.items) pre[key(it)] = trimZeros(microToDecimal(it.expectedMicro, 6));
+        for (const it of pv.items) pre[key(it)] = microToDecimalTrim(it.expectedMicro, 6);
         setCounted(pre);
         if (pv.closingStatus === "cerrado") {
           setDetail(await api.get<ClosingDetail>(`/closings/${d}`));
@@ -192,16 +190,6 @@ export function ClosingsPage() {
         }
       />
       <FlowGuide current="cierre" />
-      <Callout tone="warn" title="Cerrar el día bloquea la fecha">
-        Mientras un día esté cerrado no se pueden registrar ventas, gastos ni elaboraciones en
-        esa fecha, y solo se puede cerrar una vez. Cualquier diferencia entre el conteo físico y
-        el sistema exige un motivo.
-      </Callout>
-      <Callout tone="info" title="Resumen inmutable y reapertura">
-        El cierre guarda el resumen del día (ventas, costo de ventas, gastos, resultado neto e inventario
-        contado) tal como quedó. Para corregir algo, reabre el día con motivo: la reapertura
-        queda en la auditoría y después puedes volver a cerrar.
-      </Callout>
       <ErrorAlert message={error} />
 
       {preview && (
@@ -260,11 +248,11 @@ export function ClosingsPage() {
                     <tr key={c.id}>
                       <td>{ITEM_TYPE_LABELS[c.itemType]}</td>
                       <td className="font-mono">#{c.itemId}</td>
-                      <td className="num">{microToDecimal(c.expectedMicro, 6)}</td>
-                      <td className="num">{microToDecimal(c.countedMicro, 6)}</td>
+                      <td className="num">{microToDecimalTrim(c.expectedMicro, 6)}</td>
+                      <td className="num">{microToDecimalTrim(c.countedMicro, 6)}</td>
                       <td className={`num font-semibold ${c.diffMicro !== 0 ? "text-red-600" : ""}`}>
                         {c.diffMicro > 0 ? "+" : ""}
-                        {microToDecimal(c.diffMicro, 6)}
+                        {microToDecimalTrim(c.diffMicro, 6)}
                       </td>
                       <td className={`num ${c.diffValueMicro !== 0 ? "text-red-600" : ""}`}>
                         {fmtMoney(c.diffValueMicro)}
@@ -307,7 +295,7 @@ export function ClosingsPage() {
                         <tr key={k} className={hasDiff ? "bg-amber-50" : undefined}>
                           <td className="text-xs">{ITEM_TYPE_LABELS[it.itemType]}</td>
                           <td>{it.name}</td>
-                          <td className="num text-slate-500">{microToDecimal(it.expectedMicro, 6)}</td>
+                          <td className="num text-slate-500">{microToDecimalTrim(it.expectedMicro, 6)}</td>
                           <td className="num">
                             <input
                               className={`w-28 rounded border px-2 py-1 text-right text-sm ${
@@ -323,7 +311,7 @@ export function ClosingsPage() {
                             />
                           </td>
                           <td className={`num font-semibold ${hasDiff ? "text-red-600" : "text-slate-400"}`}>
-                            {d === null ? "—" : d === 0 ? "0" : `${d > 0 ? "+" : ""}${microToDecimal(d, 6)}`}
+                            {d === null ? "—" : d === 0 ? "0" : `${d > 0 ? "+" : ""}${microToDecimalTrim(d, 6)}`}
                           </td>
                           <td>
                             {hasDiff && (

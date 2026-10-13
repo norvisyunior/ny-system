@@ -3,7 +3,6 @@ import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import {
   Badge,
-  Callout,
   ErrorAlert,
   Modal,
   SearchInput,
@@ -26,6 +25,7 @@ interface SaleRow {
   totalCostMicro: number;
   status: string;
   itemsCount: number;
+  productsSummary: string | null;
 }
 
 interface SaleDetail {
@@ -234,15 +234,6 @@ export function SalesPage() {
         }
       />
       <FlowGuide current="ventas" />
-      <Callout tone="info" title="Precio y costo se congelan al vender">
-        El precio capturado queda guardado en la venta, aunque después cambies el precio del
-        producto. El costo de ventas sale del inventario PEPS, y el descuento nunca puede superar
-        el subtotal.
-      </Callout>
-      <Callout tone="tip" title="Sin stock no hay venta">
-        Si el producto no alcanza, verás un aviso de stock insuficiente. Revisa el inventario de
-        productos o produce más antes de volver a intentar.
-      </Callout>
       <ErrorAlert message={error} />
 
       {view === "list" && (
@@ -258,9 +249,9 @@ export function SalesPage() {
                   <th>#</th>
                   <th>Fecha</th>
                   <th>Método</th>
-                  <th className="num">Ítems</th>
+                  <th>Productos</th>
                   <th className="num">Total</th>
-                  <th className="num">Costo de ventas</th>
+                  <th className="num">Costo</th>
                   <th className="num">Margen</th>
                   <th className="center">Estado</th>
                   <th></th>
@@ -276,16 +267,45 @@ export function SalesPage() {
                 )}
                 {filtered.map((r) => {
                   const margin = r.totalMicro - r.totalCostMicro;
+                  const marginPct = r.totalMicro > 0 ? (margin / r.totalMicro) * 100 : 0;
                   return (
-                    <tr key={r.id}>
-                      <td className="font-mono font-semibold">{fmtDocNumber(r.number)}</td>
-                      <td>{r.saleDate}</td>
-                      <td>{PAYMENT_LABELS[r.paymentMethod] ?? r.paymentMethod}</td>
-                      <td className="num">{r.itemsCount}</td>
-                      <td className="num font-semibold">{fmtMoney(r.totalMicro)}</td>
-                      <td className="num text-slate-500">{fmtMoney(r.totalCostMicro)}</td>
-                      <td className={`num font-semibold ${margin < 0 ? "text-red-600" : "text-emerald-700"}`}>
-                        {fmtMoney(margin)}
+                    <tr key={r.id} className={r.status === "anulada" ? "opacity-55" : undefined}>
+                      <td>
+                        <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 font-mono text-xs font-bold text-slate-700">
+                          {fmtDocNumber(r.number)}
+                        </span>
+                      </td>
+                      <td className="text-slate-600">{r.saleDate}</td>
+                      <td>
+                        <Badge tone={r.paymentMethod === "efectivo" ? "green" : r.paymentMethod === "tarjeta" ? "blue" : r.paymentMethod === "transferencia" ? "amber" : "slate"}>
+                          {PAYMENT_LABELS[r.paymentMethod] ?? r.paymentMethod}
+                        </Badge>
+                      </td>
+                      <td>
+                        <div className="max-w-[220px]">
+                          {r.productsSummary ? (
+                            <span className="block truncate text-[11px] leading-tight text-slate-500" title={r.productsSummary}>
+                              {r.productsSummary}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-400">—</span>
+                          )}
+                          <span className="text-[10px] text-slate-400">{r.itemsCount} ítem(s)</span>
+                        </div>
+                      </td>
+                      <td className="num font-bold text-slate-900">{fmtMoney(r.totalMicro)}</td>
+                      <td className="num text-xs text-slate-400">{fmtMoney(r.totalCostMicro)}</td>
+                      <td className="num">
+                        <div className="flex flex-col items-end">
+                          <span className={`font-bold ${margin < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                            {margin < 0 ? "−" : ""}{fmtMoney(Math.abs(margin))}
+                          </span>
+                          {r.totalMicro > 0 && (
+                            <span className={`text-[10px] ${marginPct < 0 ? "text-red-400" : "text-emerald-400"}`}>
+                              {marginPct >= 0 ? "+" : ""}{marginPct.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="center">
                         {r.status === "confirmada" ? (
@@ -303,6 +323,25 @@ export function SalesPage() {
                   );
                 })}
               </tbody>
+              {filtered.some((r) => r.status === "confirmada") && (
+                <tfoot>
+                  <tr className="bg-slate-50">
+                    <td colSpan={4} className="text-right text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Totales (confirmadas)
+                    </td>
+                    <td className="num text-sm font-bold text-slate-900">
+                      {fmtMoney(filtered.filter((r) => r.status === "confirmada").reduce((a, r) => a + r.totalMicro, 0))}
+                    </td>
+                    <td className="num text-xs text-slate-400">
+                      {fmtMoney(filtered.filter((r) => r.status === "confirmada").reduce((a, r) => a + r.totalCostMicro, 0))}
+                    </td>
+                    <td className="num text-sm font-bold text-emerald-700">
+                      {fmtMoney(filtered.filter((r) => r.status === "confirmada").reduce((a, r) => a + (r.totalMicro - r.totalCostMicro), 0))}
+                    </td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </>

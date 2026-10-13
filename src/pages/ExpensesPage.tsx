@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import { Badge, Callout, ErrorAlert, Modal, SearchInput, fmtMoney, todayISO } from "../components/ui";
+import { Badge, ErrorAlert, Modal, SearchInput, fmtMoney, todayISO } from "../components/ui";
 
 interface ExpenseRow {
   id: number;
@@ -124,11 +124,6 @@ export function ExpensesPage() {
           )
         }
       />
-      <Callout tone="info" title="Los gastos restan en la utilidad del día">
-        Entran en el resultado neto del cierre diario y en el reporte de rentabilidad. No se
-        editan ni se borran: si algo quedó mal, anúlelo con motivo y crea el correcto. En una
-        fecha ya cerrada no se aceptan gastos.
-      </Callout>
       <ErrorAlert message={error} />
 
       {view === "list" && (

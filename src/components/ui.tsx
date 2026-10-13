@@ -1,14 +1,13 @@
 import { useEffect } from "react";
-import { formatCUP, microToDecimal } from "@shared/money";
+import { NavLink } from "react-router-dom";
+import { formatCUP, microToDecimalTrim } from "@shared/money";
 
 export function fmtMoney(micro: number): string {
   return formatCUP(micro);
 }
 
 export function fmtQty(micro: number, unit?: string | null, decimals = 3): string {
-  const n = microToDecimal(micro, decimals).replace(/\.?0+$/, (m) =>
-    m.includes(".") ? "" : m,
-  );
+  const n = microToDecimalTrim(micro, decimals);
   return unit ? `${n} ${unit}` : n;
 }
 
@@ -77,6 +76,44 @@ export function Modal({
       </div>
     </div>
   );
+}
+
+/** Tarjeta de indicador (KPI) con valor grande y estado opcional. */
+export function Kpi({
+  label,
+  value,
+  sub,
+  muted,
+  tone,
+  big,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  muted?: boolean;
+  tone?: "green" | "red";
+  big?: boolean;
+}) {
+  const color =
+    tone === "red"
+      ? "text-red-600"
+      : tone === "green"
+        ? "text-emerald-700"
+        : muted
+          ? "text-slate-500"
+          : "text-slate-900";
+  return (
+    <div className="card p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</div>
+      <div className={`${big ? "text-2xl" : "text-xl"} font-bold ${color}`}>{value}</div>
+      {sub && <div className="text-xs text-slate-400">{sub}</div>}
+    </div>
+  );
+}
+
+/** Porcentaje con 1 decimal (ej. 23.5%). */
+export function fmtPct(value: number): string {
+  return `${value.toFixed(1)}%`;
 }
 
 export function ErrorAlert({ message }: { message: string | null }) {
@@ -170,19 +207,20 @@ export type FlowStepId =
   | "cierre"
   | "reportes";
 
-const FLOW_STEPS: { id: FlowStepId; label: string }[] = [
-  { id: "catalogos", label: "Catálogos" },
-  { id: "compras", label: "Compras" },
-  { id: "recetas", label: "Recetas" },
-  { id: "planes", label: "Planes" },
-  { id: "elaboracion", label: "Elaboración" },
-  { id: "terminacion", label: "Terminación" },
-  { id: "ventas", label: "Ventas" },
-  { id: "cierre", label: "Cierre" },
-  { id: "reportes", label: "Reportes" },
+const FLOW_STEPS: { id: FlowStepId; label: string; to: string }[] = [
+  { id: "catalogos", label: "Catálogos", to: "/inventario/materias-primas" },
+  { id: "compras", label: "Compras", to: "/operaciones/compras" },
+  { id: "recetas", label: "Recetas", to: "/produccion/recetas" },
+  { id: "planes", label: "Planes", to: "/produccion/planes" },
+  { id: "elaboracion", label: "Elaboración", to: "/produccion/producciones" },
+  { id: "terminacion", label: "Terminación", to: "/operaciones/transformacion" },
+  { id: "ventas", label: "Ventas", to: "/operaciones/ventas" },
+  { id: "cierre", label: "Cierre", to: "/operaciones/cierre" },
+  { id: "reportes", label: "Reportes", to: "/reportes" },
 ];
 
-/** Tira numerada con el orden del proceso del negocio; resalta la etapa actual. */
+/** Tira numerada con el orden del proceso del negocio; cada etapa es un enlace
+ *  a su sección y resalta la etapa actual. */
 export function FlowGuide({
   current,
   className = "",
@@ -191,7 +229,10 @@ export function FlowGuide({
   className?: string;
 }) {
   return (
-    <div className={`mb-4 rounded-md border border-slate-200 bg-white px-4 py-3 ${className}`}>
+    <nav
+      aria-label="Flujo del negocio"
+      className={`mb-4 rounded-md border border-slate-200 bg-white px-4 py-3 ${className}`}
+    >
       <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
         Flujo del negocio
       </div>
@@ -200,20 +241,32 @@ export function FlowGuide({
           const active = step.id === current;
           return (
             <li key={step.id} className="flex items-center">
-              <span
-                className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${
-                  active ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"
+              <NavLink
+                to={step.to}
+                title={`Ir a ${step.label}`}
+                className={`group flex items-center rounded-md px-1.5 py-1 transition-colors ${
+                  active ? "" : "hover:bg-slate-100"
                 }`}
               >
-                {i + 1}
-              </span>
-              <span
-                className={`ml-1.5 text-xs ${
-                  active ? "font-semibold text-blue-700" : "text-slate-500"
-                }`}
-              >
-                {step.label}
-              </span>
+                <span
+                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${
+                    active
+                      ? "bg-blue-600 text-white"
+                      : "bg-slate-200 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-700"
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <span
+                  className={`ml-1.5 text-xs ${
+                    active
+                      ? "font-semibold text-blue-700"
+                      : "text-slate-500 group-hover:text-blue-700"
+                  }`}
+                >
+                  {step.label}
+                </span>
+              </NavLink>
               {i < FLOW_STEPS.length - 1 && (
                 <span className="px-1.5 text-xs text-slate-300">→</span>
               )}
@@ -221,6 +274,6 @@ export function FlowGuide({
           );
         })}
       </ol>
-    </div>
+    </nav>
   );
 }

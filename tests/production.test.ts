@@ -4,11 +4,18 @@
  * paquetes reales, costos históricos, idempotencia y cierre de día.
  */
 import { describe, expect, it } from "vitest";
-import { count } from "drizzle-orm";
-import { inventoryMovements } from "../db/schema";
+import { count, eq } from "drizzle-orm";
+import { inventoryMovements, productionBatches, transformations } from "../db/schema";
 import { availableStock } from "../server/domain/fifo";
 import { isAppError } from "../server/domain/errors";
-import { createPlan, previewPlan, getPlanDetail, listPlans } from "../server/services/planning";
+import {
+  annulPlan,
+  createPlan,
+  deletePlan,
+  previewPlan,
+  getPlanDetail,
+  listPlans,
+} from "../server/services/planning";
 import {
   confirmProduction,
   getProductionDetail,
@@ -484,5 +491,110 @@ describe("§13 Reglas de receta", () => {
 
     expect(listProductions(flow.h.db)).toHaveLength(0);
     expect(availableStock(flow.h.db, "raw", flow.harinaId)).toBe(500_000_000);
+  });
+});
+
+describe("§13 Eliminación de planes", () => {
+  function newPlan(flow: Flow, token: string) {
+    return createPlan(flow.h.db, flow.h.units, {
+      planDate: flow.today,
+      recipeVersionId: flow.recipeVersionId,
+      targetPackages: 2_000_000_000,
+      notes: "Plan a eliminar",
+      clientToken: token,
+    });
+  }
+
+  it("15. elimina un plan sin referencias; un segundo intento responde 404", () => {
+    const flow = flowYield80();
+    const plan = newPlan(flow, "plan-token-del-0001");
+    expect(listPlans(flow.h.db)).toHaveLength(1);
+
+    const res = deletePlan(flow.h.db, plan.id);
+    expect(res.deleted).toBe(true);
+    expect(listPlans(flow.h.db)).toHaveLength(0);
+
+    let error: unknown;
+    try {
+      deletePlan(flow.h.db, plan.id);
+    } catch (e) {
+      error = e;
+    }
+    expect(isAppError(error)).toBe(true);
+    if (isAppError(error)) {
+      expect(error.code).toBe("NOT_FOUND");
+      expect(error.status).toBe(404);
+    }
+  });
+
+  it("16. elimina un plan con producción y terminación vinculadas: ambas quedan desvinculadas", () => {
+    const flow = flowYield80();
+    const plan = newPlan(flow, "plan-token-del-0002");
+    const batch = confirmProduction(
+      flow.h.db,
+      flow.h.units,
+      productionInput.parse({
+        productionDate: flow.today,
+        recipeVersionId: flow.recipeVersionId,
+        massesCount: "1",
+        planId: plan.id,
+      }),
+    );
+    const tf = confirmTransformation(
+      flow.h.db,
+      flow.h.units,
+      transformationInput.parse({
+        transformDate: flow.today,
+        massId: flow.masaId,
+        massQty: "1",
+        outputs: [{ productId: flow.productId, qty: "10" }],
+        planId: plan.id,
+      }),
+    );
+
+    deletePlan(flow.h.db, plan.id);
+
+    expect(listPlans(flow.h.db)).toHaveLength(0);
+    // Producción y terminación siguen existiendo, solo pierden la referencia al plan.
+    expect(listProductions(flow.h.db)).toHaveLength(1);
+    expect(listTransformations(flow.h.db)).toHaveLength(1);
+    const batchRow = flow.h.db
+      .select({ planId: productionBatches.planId })
+      .from(productionBatches)
+      .where(eq(productionBatches.id, batch.id))
+      .get();
+    expect(batchRow?.planId).toBeNull();
+    const tfRow = flow.h.db
+      .select({ planId: transformations.planId })
+      .from(transformations)
+      .where(eq(transformations.id, tf.id))
+      .get();
+    expect(tfRow?.planId).toBeNull();
+  });
+
+  it("17. un plan anulado sin producciones sí se puede eliminar", () => {
+    const flow = flowYield80();
+    const plan = newPlan(flow, "plan-token-del-0003");
+    annulPlan(flow.h.db, plan.id, "No se requiere");
+    expect(listPlans(flow.h.db)[0].status).toBe("anulada");
+
+    deletePlan(flow.h.db, plan.id);
+    expect(listPlans(flow.h.db)).toHaveLength(0);
+  });
+});
+
+describe("§13 Formato de los avisos de disponibilidad", () => {
+  it("18. las cantidades faltantes se muestran sin decimales engañosos (1000, no 1000.000)", () => {
+    const flow = flowYield80();
+    // 20000 paquetes / 80 = 250 masas → 1500 kg de harina (hay 500) y
+    // 20000 bolsas (hay 5000).
+    const preview = previewPlan(flow.h.db, flow.h.units, {
+      recipeVersionId: flow.recipeVersionId,
+      targetPackages: 20_000_000_000,
+    });
+    expect(preview.warnings).toContain("Falta 1000 kg de Harina.");
+    expect(preview.warnings).toContain("Falta 15000 unidad de Bolsa.");
+    // Ningún aviso debe mostrar tres decimales: "215.000" se lee como 215 mil.
+    expect(preview.warnings.every((w) => !/\d\.\d{3}(?!\d)/.test(w))).toBe(true);
   });
 });
