@@ -269,6 +269,108 @@ export function RecipesPage() {
       (r.productName ?? "").toLowerCase().includes(q.toLowerCase()),
   );
 
+  const addItem = (phase: Phase) =>
+    setVersion((f) => ({
+      ...f,
+      items: [...f.items, { rawMaterialId: "", unitId: "", qty: "", phase }],
+    }));
+
+  // Índices originales por fase (para editar/borrar sobre version.items).
+  const rowsByPhase = (phase: Phase) =>
+    version.items
+      .map((it, i) => ({ it, i }))
+      .filter((x) => x.it.phase === phase);
+
+  const itemsRow = (it: VersionForm["items"][number], i: number) => (
+    <tr key={i}>
+      <td>
+        <select
+          className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+          value={it.rawMaterialId}
+          onChange={(e) => onMaterialChange(i, e.target.value)}
+        >
+          <option value="">Seleccione…</option>
+          {materials.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>
+        <input
+          className="w-full rounded border border-slate-300 px-2 py-1.5 text-right text-sm"
+          value={it.qty}
+          inputMode="decimal"
+          placeholder="0"
+          onChange={(e) => setItem(i, { qty: e.target.value })}
+        />
+      </td>
+      <td>
+        <select
+          className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+          value={it.unitId}
+          onChange={(e) => setItem(i, { unitId: e.target.value })}
+        >
+          <option value="">—</option>
+          {unitOptions(it).map((u) => (
+            <option key={u.code} value={u.code}>
+              {u.code}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="text-center">
+        <button
+          className="text-slate-400 hover:text-red-600"
+          title="Quitar línea"
+          onClick={() =>
+            setVersion((f) => ({ ...f, items: f.items.filter((_, k) => k !== i) }))
+          }
+        >
+          ✕
+        </button>
+      </td>
+    </tr>
+  );
+
+  const itemsTable = (rows: { it: VersionForm["items"][number]; i: number }[]) => (
+    <table className="table-ny">
+      <thead>
+        <tr>
+          <th style={{ width: "44%" }}>Materia prima</th>
+          <th style={{ width: "20%" }}>Cantidad</th>
+          <th style={{ width: "20%" }}>Unidad</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>{rows.map((r) => itemsRow(r.it, r.i))}</tbody>
+    </table>
+  );
+
+  const phaseBlock = (phase: Phase, emptyText: string) => {
+    const rows = rowsByPhase(phase);
+    return (
+      <div className="mb-1">
+        <div className="mb-1 flex items-baseline gap-2">
+          <h4 className="text-xs font-bold uppercase tracking-wide text-slate-600">
+            {PHASE_LABEL[phase]}
+          </h4>
+          <span className="text-[11px] text-slate-400">
+            {phase === "masa" ? "cantidad por masa" : "cantidad por paquete"}
+          </span>
+        </div>
+        {rows.length === 0 ? (
+          <p className="rounded-md border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+            {emptyText}
+          </p>
+        ) : (
+          itemsTable(rows)
+        )}
+      </div>
+    );
+  };
+
   const versionFormFields = (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-3 gap-3">
@@ -339,99 +441,30 @@ export function RecipesPage() {
 
       <div className="mt-1 mb-2 flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-bold text-slate-700">Ingredientes</h3>
+          <h3 className="text-sm font-bold text-slate-700">Ingredientes y empaques</h3>
           <p className="text-xs text-slate-500">
-            Fase <strong>masa</strong>: se consume al elaborar. Fase <strong>paquete</strong>: se
-            consume al terminar, por cada paquete real obtenido.
+            Los ingredientes se consumen <strong>al elaborar</strong> la masa; los empaques se
+            consumen <strong>al terminar</strong>, por cada paquete real empaquetado.
           </p>
         </div>
-        <button
-          className="btn btn-secondary"
-          onClick={() =>
-            setVersion((f) => ({
-              ...f,
-              items: [...f.items, { rawMaterialId: "", unitId: "", qty: "", phase: "masa" }],
-            }))
-          }
-        >
-          + Agregar ingrediente
-        </button>
+        <div className="flex gap-2">
+          <button className="btn btn-secondary" onClick={() => addItem("masa")}>
+            + Agregar ingrediente
+          </button>
+          <button className="btn btn-secondary" onClick={() => addItem("paquete")}>
+            + Agregar empaque
+          </button>
+        </div>
       </div>
-      <table className="table-ny">
-        <thead>
-          <tr>
-            <th style={{ width: "36%" }}>Materia prima</th>
-            <th style={{ width: "24%" }}>Fase</th>
-            <th style={{ width: "16%" }}>Cantidad</th>
-            <th style={{ width: "16%" }}>Unidad</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {version.items.map((it, idx) => (
-            <tr key={idx}>
-              <td>
-                <select
-                  className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  value={it.rawMaterialId}
-                  onChange={(e) => onMaterialChange(idx, e.target.value)}
-                >
-                  <option value="">Seleccione…</option>
-                  {materials.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td>
-                <select
-                  className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  value={it.phase}
-                  onChange={(e) => setItem(idx, { phase: e.target.value as Phase })}
-                >
-                  <option value="masa">{PHASE_LABEL.masa}</option>
-                  <option value="paquete">{PHASE_LABEL.paquete}</option>
-                </select>
-              </td>
-              <td>
-                <input
-                  className="w-full rounded border border-slate-300 px-2 py-1.5 text-right text-sm"
-                  value={it.qty}
-                  inputMode="decimal"
-                  placeholder="0"
-                  onChange={(e) => setItem(idx, { qty: e.target.value })}
-                />
-              </td>
-              <td>
-                <select
-                  className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  value={it.unitId}
-                  onChange={(e) => setItem(idx, { unitId: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {unitOptions(it).map((u) => (
-                    <option key={u.code} value={u.code}>
-                      {u.code}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="text-center">
-                <button
-                  className="text-slate-400 hover:text-red-600"
-                  title="Quitar línea"
-                  onClick={() =>
-                    setVersion((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))
-                  }
-                >
-                  ✕
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      {phaseBlock(
+        "masa",
+        'Sin ingredientes de masa. Use "+ Agregar ingrediente" (harina, carne…).',
+      )}
+      {phaseBlock(
+        "paquete",
+        'Sin empaques. Use "+ Agregar empaque" (nylon, bolsas, cajas…): se consumen al empaquetar.',
+      )}
     </div>
   );
 

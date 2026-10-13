@@ -17,6 +17,10 @@ import {
   listPlans,
 } from "../server/services/planning";
 import {
+  previewTransformation,
+  transformationPreviewInput,
+} from "../server/services/transformations";
+import {
   confirmProduction,
   getProductionDetail,
   listProductions,
@@ -596,5 +600,47 @@ describe("§13 Formato de los avisos de disponibilidad", () => {
     expect(preview.warnings).toContain("Falta 15000 unidad de Bolsa.");
     // Ningún aviso debe mostrar tres decimales: "215.000" se lee como 215 mil.
     expect(preview.warnings.every((w) => !/\d\.\d{3}(?!\d)/.test(w))).toBe(true);
+  });
+});
+
+describe("§13 Empaques en la terminación (previsualización)", () => {
+  it("19. calcula los empaques sobre los paquetes REALES sin tocar el stock", () => {
+    const flow = flowYield80();
+    const before = bolsaStock(flow);
+
+    const preview = previewTransformation(
+      flow.h.db,
+      flow.h.units,
+      transformationPreviewInput.parse({
+        recipeVersionId: flow.recipeVersionId,
+        realPackages: "1900",
+      }),
+    );
+
+    expect(preview.packaging).toHaveLength(1);
+    const line = preview.packaging[0];
+    expect(line.name).toBe("Bolsa");
+    expect(line.qtyPerPackageMicro).toBe(1_000_000); // 1 bolsa por paquete
+    expect(line.neededMicro).toBe(1_900_000_000);
+    expect(line.availableMicro).toBe(5_000_000_000);
+    expect(line.missingMicro).toBe(0);
+    expect(line.estimatedCostMicro).toBe(95_000_000); // 1900 × 0.05 CUP
+    expect(bolsaStock(flow)).toBe(before); // solo cálculo
+  });
+
+  it("20. marca el faltante de empaque cuando el stock no alcanza", () => {
+    const flow = flowYield80();
+    const preview = previewTransformation(
+      flow.h.db,
+      flow.h.units,
+      transformationPreviewInput.parse({
+        recipeVersionId: flow.recipeVersionId,
+        realPackages: "6000",
+      }),
+    );
+    expect(preview.packaging[0].neededMicro).toBe(6_000_000_000);
+    expect(preview.packaging[0].availableMicro).toBe(5_000_000_000);
+    expect(preview.packaging[0].missingMicro).toBe(1_000_000_000);
+    expect(listTransformations(flow.h.db)).toHaveLength(0);
   });
 });

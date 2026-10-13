@@ -119,6 +119,26 @@ interface ConfirmResult {
   duplicated: boolean;
 }
 
+interface PackagingLine {
+  rawMaterialId: number;
+  name: string;
+  unitId: string;
+  itemUnitId: string;
+  qtyPerPackageMicro: number;
+  neededMicro: number;
+  availableMicro: number;
+  missingMicro: number;
+  avgCostMicro: number;
+  estimatedCostMicro: number;
+}
+
+interface PackagingPreview {
+  recipeName: string;
+  version: number;
+  realPackagesMicro: number;
+  packaging: PackagingLine[];
+}
+
 const toMicro = (v: string) => Math.round(Number(v) * 1_000_000);
 
 export function TransformationsPage() {
@@ -141,6 +161,7 @@ export function TransformationsPage() {
   const [detail, setDetail] = useState<TransformationDetail | null>(null);
   const [annulReason, setAnnulReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [packPreview, setPackPreview] = useState<PackagingPreview | null>(null);
 
   const load = useCallback(() => {
     api.get<TransformationRow[]>("/transformations").then(setRows).catch((e: ApiError) => setError(e.message));
@@ -177,6 +198,29 @@ export function TransformationsPage() {
   );
   const deviationMicro = expectedMicro != null ? realMicro - expectedMicro : null;
 
+  // Empaques de fase paquete que se consumirán según los paquetes reales (solo cálculo).
+  useEffect(() => {
+    if (!form.recipeVersionId || realMicro <= 0) {
+      setPackPreview(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .post<PackagingPreview>("/transformations/preview", {
+        recipeVersionId: Number(form.recipeVersionId),
+        realPackages: realMicro / 1_000_000,
+      })
+      .then((p) => {
+        if (!cancelled) setPackPreview(p);
+      })
+      .catch(() => {
+        if (!cancelled) setPackPreview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.recipeVersionId, realMicro]);
+
   const openForm = () => {
     setForm({
       transformDate: todayISO(),
@@ -188,6 +232,7 @@ export function TransformationsPage() {
     });
     setClientToken(newClientToken());
     setError(null);
+    setPackPreview(null);
     setView("form");
   };
 
@@ -534,6 +579,63 @@ export function TransformationsPage() {
                     : "—"}
                 </div>
               </div>
+            </div>
+          )}
+
+          {packPreview && (
+            <div className="mt-4">
+              <h3 className="mb-1 text-sm font-bold text-slate-700">
+                Empaques que se consumirán (según paquetes reales)
+              </h3>
+              {packPreview.packaging.length === 0 ? (
+                <p className="rounded-md border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+                  La receta {packPreview.recipeName} v{packPreview.version} no tiene empaques
+                  definidos en su bloque "Paquete (al terminar)".
+                </p>
+              ) : (
+                <>
+                  <p className="mb-2 text-xs text-slate-500">
+                    Se descuentan de la materia prima al confirmar, por cada paquete realmente
+                    empaquetado ({fmtQty(packPreview.realPackagesMicro, null, 0)} paq.).
+                  </p>
+                  <table className="table-ny">
+                    <thead>
+                      <tr>
+                        <th>Material</th>
+                        <th className="num">Por paquete</th>
+                        <th className="num">Necesario</th>
+                        <th className="num">Disponible</th>
+                        <th className="num">Faltante</th>
+                        <th className="num">Costo est.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {packPreview.packaging.map((l) => (
+                        <tr key={l.rawMaterialId}>
+                          <td>{l.name}</td>
+                          <td className="num text-slate-500">
+                            {fmtQty(l.qtyPerPackageMicro, l.itemUnitId)}
+                          </td>
+                          <td className="num font-semibold">
+                            {fmtQty(l.neededMicro, l.unitId)}
+                          </td>
+                          <td className="num">{fmtQty(l.availableMicro, l.unitId)}</td>
+                          <td className="num">
+                            {l.missingMicro > 0 ? (
+                              <span className="font-semibold text-red-600">
+                                {fmtQty(l.missingMicro, l.unitId)}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="num">{fmtMoney(l.estimatedCostMicro)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
             </div>
           )}
 

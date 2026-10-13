@@ -5,11 +5,20 @@ import {
   confirmTransformation,
   getTransformationDetail,
   listTransformations,
+  previewTransformation,
   transformationInput,
+  transformationPreviewInput,
 } from "../services/transformations";
 import { handle, idParam } from "./helpers";
 
 export const transformationsRouter = Router();
+
+// Vista previa: empaques de fase 'paquete' según los paquetes reales (sin tocar stock).
+transformationsRouter.post("/preview", (req, res) => {
+  const h = handle(req);
+  const input = transformationPreviewInput.parse(req.body);
+  res.json({ ok: true, data: previewTransformation(h.db, h.units, input) });
+});
 
 transformationsRouter.get("/", (req, res) => {
   res.json({ ok: true, data: listTransformations(handle(req).db) });

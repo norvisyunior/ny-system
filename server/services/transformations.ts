@@ -19,7 +19,7 @@ import { conflictError, domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
 import { nextDocNumber } from "../domain/counters";
 import { assertValidBusinessDate, nowISO } from "../domain/dates";
-import { consumeFIFO, createLot } from "../domain/fifo";
+import { availableStock, consumeFIFO, createLot, estimatedAvgCost } from "../domain/fifo";
 import { decMicro, divRoundAway, mulQtyPrice } from "../domain/zod-helpers";
 import { formatCUP, microToDecimal, microToDecimalTrim } from "../../shared/money";
 import type { DBOrTx } from "../domain/types";
@@ -60,6 +60,117 @@ interface RecipeMode {
   version: number;
   yieldMicro: number; // paquetes por masa
   productSaleUnit: string;
+}
+
+export const transformationPreviewInput = z.object({
+  recipeVersionId: z.number().int().positive("Versión de receta requerida."),
+  // Paquetes reales que se obtendrán (los que se empaquetan de verdad).
+  realPackages: decMicro({ minExclusive: true }),
+});
+export type TransformationPreviewInput = z.infer<typeof transformationPreviewInput>;
+
+export interface PackagingPreviewLine {
+  rawMaterialId: number;
+  name: string;
+  unitId: string; // unidad base del material
+  itemUnitId: string; // unidad del ítem de receta (por paquete)
+  qtyPerPackageMicro: number;
+  neededMicro: number;
+  availableMicro: number;
+  missingMicro: number;
+  avgCostMicro: number;
+  estimatedCostMicro: number;
+}
+
+export interface TransformationPreview {
+  recipeName: string;
+  version: number;
+  massName: string | null;
+  massUnit: string | null;
+  yieldMicro: number;
+  yieldUnitId: string;
+  productSaleUnit: string | null;
+  realPackagesMicro: number;
+  packaging: PackagingPreviewLine[];
+}
+
+/**
+ * Solo cálculo: empaques de fase 'paquete' que se consumirán en la terminación,
+ * según los paquetes REALES. NO descuenta inventario ni registra nada.
+ */
+export function previewTransformation(
+  db: DBOrTx,
+  catalog: UnitsCatalog,
+  input: TransformationPreviewInput,
+): TransformationPreview {
+  const row = db
+    .select({
+      versionId: recipeVersions.id,
+      version: recipeVersions.version,
+      status: recipeVersions.status,
+      yieldMicro: recipeVersions.expectedYieldMicro,
+      yieldUnitId: recipeVersions.yieldUnitId,
+      recipeId: recipes.id,
+      recipeName: recipes.name,
+      recipeActive: recipes.active,
+      productSaleUnit: finishedProducts.saleUnitId,
+      massName: masses.name,
+      massUnit: masses.unitId,
+    })
+    .from(recipeVersions)
+    .innerJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
+    .leftJoin(masses, eq(masses.id, recipeVersions.massId))
+    .leftJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
+    .where(eq(recipeVersions.id, input.recipeVersionId))
+    .get();
+  if (!row) throw notFoundError("Versión de receta");
+  if (!row.recipeActive) throw domainError(`La receta "${row.recipeName}" está inactiva.`);
+
+  const packItems = db
+    .select()
+    .from(recipeItems)
+    .where(
+      and(eq(recipeItems.recipeVersionId, row.versionId), eq(recipeItems.phase, "paquete")),
+    )
+    .all();
+
+  const packaging: PackagingPreviewLine[] = [];
+  for (const item of packItems) {
+    const mat = db.select().from(rawMaterials).where(eq(rawMaterials.id, item.rawMaterialId)).get();
+    if (!mat) throw notFoundError("Materia prima");
+    catalog.assertCompatible(item.unitId, mat.unitId);
+    // cantidad por paquete × paquetes reales obtenidos
+    const totalItemUnit = Number(
+      divRoundAway(BigInt(item.qtyMicro) * BigInt(input.realPackages), BigInt(1_000_000)),
+    );
+    const neededMicro = catalog.toBase(totalItemUnit, item.unitId, mat.unitId);
+    const availableMicro = availableStock(db, "raw", mat.id);
+    const avgCostMicro = estimatedAvgCost(db, "raw", mat.id);
+    packaging.push({
+      rawMaterialId: mat.id,
+      name: mat.name,
+      unitId: mat.unitId,
+      itemUnitId: item.unitId,
+      qtyPerPackageMicro: item.qtyMicro,
+      neededMicro,
+      availableMicro,
+      missingMicro: Math.max(0, neededMicro - availableMicro),
+      avgCostMicro,
+      estimatedCostMicro: mulQtyPrice(neededMicro, avgCostMicro),
+    });
+  }
+
+  return {
+    recipeName: row.recipeName,
+    version: row.version,
+    massName: row.massName,
+    massUnit: row.massUnit,
+    yieldMicro: row.yieldMicro,
+    yieldUnitId: row.yieldUnitId,
+    productSaleUnit: row.productSaleUnit,
+    realPackagesMicro: input.realPackages,
+    packaging,
+  };
 }
 
 /**
