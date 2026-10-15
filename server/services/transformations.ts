@@ -557,7 +557,13 @@ export interface TransformationListRow {
   status: string;
 }
 
-export function listTransformations(db: DBOrTx): TransformationListRow[] {
+export function listTransformations(
+  db: DBOrTx,
+  opts: { from?: string; to?: string } = {},
+): TransformationListRow[] {
+  const conds = [];
+  if (opts.from) conds.push(sql`${transformations.transformDate} >= ${opts.from}`);
+  if (opts.to) conds.push(sql`${transformations.transformDate} <= ${opts.to}`);
   const rows = db
     .select({
       id: transformations.id,
@@ -582,6 +588,7 @@ export function listTransformations(db: DBOrTx): TransformationListRow[] {
     .leftJoin(recipeVersions, eq(recipeVersions.id, transformations.recipeVersionId))
     .leftJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
     .leftJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
+    .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(transformations.transformDate), desc(transformations.number))
     .all();
   return rows;

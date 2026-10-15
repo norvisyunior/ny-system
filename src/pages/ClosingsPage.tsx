@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import { Badge, ErrorAlert, FlowGuide, Modal, fmtMoney, todayISO } from "../components/ui";
+import { Badge, DayFilter, ErrorAlert, FlowGuide, Modal, fmtMoney, todayISO } from "../components/ui";
 import { microToDecimalTrim } from "@shared/money";
 
 type ItemType = "raw" | "mass" | "product";
@@ -84,6 +84,27 @@ export function ClosingsPage() {
   const [saving, setSaving] = useState(false);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [reopenReason, setReopenReason] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  /** Sube al inicio del contenido (el contenedor scroll es <main> del layout). */
+  const scrollTop = () => {
+    const el = rootRef.current?.closest("main") ?? rootRef.current;
+    el?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  /**
+   * "Ver" de la tabla de cierres: cambia de día y siempre vuelve a cargar la
+   * hoja. Si la fecha ya estaba seleccionada, setDate no dispararía el effect,
+   * por eso se recarga a mano.
+   */
+  const viewDay = (d: string) => {
+    if (d === date) {
+      loadDate(d);
+    } else {
+      setDate(d);
+    }
+    scrollTop();
+  };
 
   const loadList = useCallback(() => {
     api.get<ClosingListRow[]>("/closings").then(setList).catch(() => undefined);
@@ -173,21 +194,11 @@ export function ClosingsPage() {
   const closed = preview?.closingStatus === "cerrado";
 
   return (
-    <div>
+    <div ref={rootRef}>
       <PageHeader
         title="Cierre diario"
         subtitle="Conteo físico, resultados del día y reapertura auditada"
-        actions={
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              className="rounded border border-slate-300 px-2 py-1.5 text-sm"
-              max={todayISO()}
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-        }
+        actions={<DayFilter date={date} onChange={setDate} />}
       />
       <FlowGuide current="cierre" />
       <ErrorAlert message={error} />
@@ -402,7 +413,7 @@ export function ClosingsPage() {
                     {r.status === "cerrado" ? <Badge tone="green">Cerrado</Badge> : <Badge tone="amber">Reabierto</Badge>}
                   </td>
                   <td className="text-right">
-                    <button className="btn btn-secondary" onClick={() => setDate(r.businessDate)}>
+                    <button className="btn btn-secondary" onClick={() => viewDay(r.businessDate)}>
                       Ver
                     </button>
                   </td>

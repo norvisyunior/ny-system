@@ -13,6 +13,12 @@ import { handle, idParam } from "./helpers";
 
 export const transformationsRouter = Router();
 
+const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+const listQuery = z.object({
+  from: z.string().regex(dateRe).optional(),
+  to: z.string().regex(dateRe).optional(),
+});
+
 // Vista previa: empaques de fase 'paquete' según los paquetes reales (sin tocar stock).
 transformationsRouter.post("/preview", (req, res) => {
   const h = handle(req);
@@ -21,7 +27,8 @@ transformationsRouter.post("/preview", (req, res) => {
 });
 
 transformationsRouter.get("/", (req, res) => {
-  res.json({ ok: true, data: listTransformations(handle(req).db) });
+  const opts = listQuery.parse(req.query);
+  res.json({ ok: true, data: listTransformations(handle(req).db, opts) });
 });
 
 transformationsRouter.get("/:id", (req, res) => {

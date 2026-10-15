@@ -17,6 +17,28 @@ export function todayISO(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+const MONTHS = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
+];
+
+/** "2026-10-13" → "13 de octubre de 2026" */
+export function fmtLongDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return `${d} de ${MONTHS[m - 1]} de ${y}`;
+}
+
 export function fmtDocNumber(n: number): string {
   return String(n).padStart(5, "0");
 }
@@ -143,6 +165,54 @@ export function Badge({
     <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${tones[tone]}`}>
       {children}
     </span>
+  );
+}
+
+/**
+ * Barra de "día visible": indica qué día se está mostrando y permite cambiarlo.
+ * Todas las operaciones de una sección se listan por la fecha elegida.
+ */
+export function DayFilter({
+  date,
+  onChange,
+  className = "",
+}: {
+  date: string;
+  onChange: (v: string) => void;
+  className?: string;
+}) {
+  const today = todayISO();
+  const isToday = date === today;
+  return (
+    <div className={`flex flex-wrap items-center gap-2 ${className}`}>
+      <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+          Día visible
+        </span>
+        <span className="text-sm font-semibold text-slate-800">{fmtLongDate(date)}</span>
+        {isToday ? (
+          <Badge tone="blue">Hoy</Badge>
+        ) : (
+          <button
+            type="button"
+            className="text-xs font-semibold text-blue-700 hover:underline"
+            onClick={() => onChange(today)}
+          >
+            Ir a hoy
+          </button>
+        )}
+      </div>
+      <input
+        type="date"
+        max={today}
+        value={date}
+        aria-label="Cambiar el día visible"
+        onChange={(e) => {
+          if (e.target.value) onChange(e.target.value);
+        }}
+        className="rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+      />
+    </div>
   );
 }
 

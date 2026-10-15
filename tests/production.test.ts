@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { count, eq } from "drizzle-orm";
-import { inventoryMovements, productionBatches, transformations } from "../db/schema";
+import { inventoryMovements, productionBatches, recipeVersions, transformations } from "../db/schema";
 import { availableStock } from "../server/domain/fifo";
 import { isAppError } from "../server/domain/errors";
 import {
@@ -34,9 +34,10 @@ import {
 } from "../server/services/transformations";
 import {
   createRecipe,
-  createRecipeVersion,
+  listRecipes,
   recipeCreateInput,
-  versionInput,
+  recipeUpdateInput,
+  updateRecipe,
 } from "../server/services/recipes";
 import { productInput, createProduct } from "../server/services/products";
 import { massInput, createMass } from "../server/services/masses";
@@ -255,16 +256,20 @@ describe("§13 Costos históricos", () => {
     const batch2 = produce(flow, "84");
     expect(batch2.totalCostMicro).toBe(267_000_000);
 
-    // Nueva versión de receta con otros ingredientes.
-    const v2 = createRecipeVersion(flow.h.db, flow.h.units, flow.recipeId, versionInput.parse({
-      massId: flow.masaId,
-      expectedYield: "10",
-      yieldUnitId: "unidad",
-      validFrom: flow.today,
-      items: [
-        { rawMaterialId: flow.harinaId, unitId: "kg", qty: "12", phase: "masa" },
-        { rawMaterialId: flow.bolsaId, unitId: "unidad", qty: "1", phase: "paquete" },
-      ],
+    // La receta se edita en sitio (una única ficha, sin versiones).
+    const current = listRecipes(flow.h.db).find((r) => r.id === flow.recipeId);
+    updateRecipe(flow.h.db, flow.h.units, flow.recipeId, recipeUpdateInput.parse({
+      name: current?.name ?? "Receta de prueba",
+      version: {
+        massId: flow.masaId,
+        expectedYield: "10",
+        yieldUnitId: "unidad",
+        validFrom: flow.today,
+        items: [
+          { rawMaterialId: flow.harinaId, unitId: "kg", qty: "12", phase: "masa" },
+          { rawMaterialId: flow.bolsaId, unitId: "unidad", qty: "1", phase: "paquete" },
+        ],
+      },
     }));
 
     // El histórico queda intacto.
@@ -275,13 +280,13 @@ describe("§13 Costos históricos", () => {
     const b2 = getProductionDetail(flow.h.db, batch2.id);
     expect(b2.totalCostMicro).toBe(267_000_000);
 
-    // La nueva versión produce a su nuevo costo (12 kg × 2.00 = 24 CUP).
+    // La receta editada produce a su nuevo costo (12 kg × 2.00 = 24 CUP).
     const batch3 = confirmProduction(
       flow.h.db,
       flow.h.units,
       productionInput.parse({
         productionDate: flow.today,
-        recipeVersionId: v2.versionId,
+        recipeVersionId: flow.recipeVersionId,
         massesCount: "1",
       }),
     );
@@ -398,17 +403,13 @@ describe("§13 Integridad transaccional e idempotencia", () => {
 describe("§13 Reglas de receta", () => {
   it("13. rechaza elaborar con una versión archivada de la receta (409)", () => {
     const flow = setupFlow();
-    // Nueva versión → v1 queda archivada.
-    createRecipeVersion(flow.h.db, flow.h.units, flow.recipeId, versionInput.parse({
-      massId: flow.masaId,
-      expectedYield: "10",
-      yieldUnitId: "unidad",
-      validFrom: flow.today,
-      items: [
-        { rawMaterialId: flow.harinaId, unitId: "kg", qty: "6", phase: "masa" },
-        { rawMaterialId: flow.bolsaId, unitId: "unidad", qty: "1", phase: "paquete" },
-      ],
-    }));
+    // Dato legado: la única versión queda marcada como archivada directamente
+    // (la UI ya no crea versiones, pero la guarda interna se mantiene).
+    flow.h.db
+      .update(recipeVersions)
+      .set({ status: "archivada" })
+      .where(eq(recipeVersions.id, flow.recipeVersionId))
+      .run();
 
     let error: unknown;
     try {

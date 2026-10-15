@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { microToDecimalTrim } from "@shared/money";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { Badge, ErrorAlert, FlowGuide, Modal, SearchInput, fmtQty, todayISO } from "../components/ui";
@@ -13,6 +14,7 @@ const PHASE_LABEL: Record<Phase, string> = {
 interface RecipeRow {
   id: number;
   name: string;
+  description: string | null;
   active: boolean;
   productId: number | null;
   productName: string | null;
@@ -51,27 +53,14 @@ interface Product {
   active: boolean;
 }
 
-interface VersionListItem {
-  id: number;
-  version: number;
-  status: string;
-  massName: string | null;
-  expectedYieldMicro: number;
-  yieldUnitId: string;
-  validFrom: string;
-  createdAt: string;
-}
-
-interface VersionDetail {
+interface RecipeDetail {
   id: number;
   recipeName: string;
   productId: number | null;
   productName: string | null;
   productSaleUnit: string | null;
-  version: number;
-  status: string;
+  massId: number | null;
   massName: string | null;
-  massUnit: string | null;
   expectedYieldMicro: number;
   yieldUnitId: string;
   instructions: string | null;
@@ -79,32 +68,29 @@ interface VersionDetail {
   notes: string | null;
   items: {
     id: number;
+    rawMaterialId: number;
     materialName: string;
-    materialUnit: string;
     unitId: string;
-    unitLabel: string;
     qtyMicro: number;
     phase: string;
   }[];
 }
 
-interface VersionForm {
+interface RecipeForm {
   massId: string;
   expectedYield: string;
-  instructions: string;
   validFrom: string;
-  notes: string;
   items: { rawMaterialId: string; unitId: string; qty: string; phase: Phase }[];
 }
 
-const EMPTY_VERSION = (): VersionForm => ({
+const EMPTY_FORM = (): RecipeForm => ({
   massId: "",
   expectedYield: "",
-  instructions: "",
   validFrom: todayISO(),
-  notes: "",
   items: [{ rawMaterialId: "", unitId: "", qty: "", phase: "masa" }],
 });
+
+const EMPTY_HEADER = { name: "", description: "", productId: "" };
 
 export function RecipesPage() {
   const [rows, setRows] = useState<RecipeRow[]>([]);
@@ -116,13 +102,9 @@ export function RecipesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [header, setHeader] = useState({ name: "", description: "", productId: "" });
-  const [version, setVersion] = useState<VersionForm>(EMPTY_VERSION());
-
-  const [versionFor, setVersionFor] = useState<RecipeRow | null>(null);
-  const [newVersionFor, setNewVersionFor] = useState<RecipeRow | null>(null);
-  const [versionsList, setVersionsList] = useState<VersionListItem[] | null>(null);
-  const [versionDetail, setVersionDetail] = useState<VersionDetail | null>(null);
+  const [editing, setEditing] = useState<RecipeRow | null>(null);
+  const [header, setHeader] = useState(EMPTY_HEADER);
+  const [form, setForm] = useState<RecipeForm>(EMPTY_FORM());
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
@@ -137,32 +119,31 @@ export function RecipesPage() {
       api.get<Product[]>("/products"),
     ])
       .then(([m, mat, u, p]) => {
-        setMasses(m.filter((x) => x.active));
-        setMaterials(mat.filter((x) => x.active));
+        setMasses(m);
+        setMaterials(mat);
         setUnits(u);
-        setProducts(p.filter((x) => x.active));
+        setProducts(p);
       })
       .catch(() => undefined);
   }, []);
 
-  // Producto de la receta en edición: en el modal de creación sale del header;
-  // en una nueva versión, de la receta existente.
+  // Producto de la receta en edición: en la creación sale del select; al editar, de la receta.
   const activeProduct = createOpen
     ? products.find((p) => String(p.id) === header.productId)
-    : newVersionFor
-      ? products.find((p) => p.id === newVersionFor.productId)
+    : editing
+      ? products.find((p) => p.id === editing.productId)
       : undefined;
 
   const unitDimension = (code: string) => units.find((u) => u.code === code)?.dimension;
   // Receta por producto: la masa se cuenta (dimensión conteo), no se pesa.
-  const visibleMasses = activeProduct
-    ? masses.filter((m) => unitDimension(m.unitId) === "conteo")
-    : masses;
-  const selectedMass = masses.find((m) => String(m.id) === version.massId);
+  const visibleMasses = masses.filter(
+    (m) => m.active && (!activeProduct || unitDimension(m.unitId) === "conteo"),
+  );
+  const selectedMass = masses.find((m) => String(m.id) === form.massId);
   const usedProductIds = new Set(rows.map((r) => r.productId).filter((x): x is number => x != null));
 
-  const setItem = (idx: number, patch: Partial<VersionForm["items"][number]>) => {
-    setVersion((f) => ({
+  const setItem = (idx: number, patch: Partial<RecipeForm["items"][number]>) => {
+    setForm((f) => ({
       ...f,
       items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
     }));
@@ -173,21 +154,24 @@ export function RecipesPage() {
     setItem(idx, { rawMaterialId: materialId, unitId: mat ? mat.unitId : "" });
   };
 
-  const unitOptions = (it: VersionForm["items"][number]): Unit[] => {
+  const unitOptions = (it: RecipeForm["items"][number]): Unit[] => {
     const mat = materials.find((m) => String(m.id) === it.rawMaterialId);
     if (!mat) return units;
     if (mat.dimension === "conteo") return units.filter((u) => u.code === mat.unitId);
     return units.filter((u) => u.dimension === mat.dimension);
   };
 
-  const versionBody = () => ({
-    massId: Number(version.massId),
-    expectedYield: version.expectedYield,
+  const materialOptions = (it: RecipeForm["items"][number]): Material[] =>
+    materials.filter((m) => m.active || String(m.id) === it.rawMaterialId);
+
+  const bodyPayload = () => ({
+    massId: Number(form.massId),
+    expectedYield: form.expectedYield,
     yieldUnitId: activeProduct ? activeProduct.saleUnitId : (selectedMass?.unitId ?? ""),
-    instructions: version.instructions || null,
-    validFrom: version.validFrom,
-    notes: version.notes || null,
-    items: version.items
+    instructions: null,
+    validFrom: form.validFrom,
+    notes: null,
+    items: form.items
       .filter((it) => it.rawMaterialId && it.qty)
       .map((it) => ({
         rawMaterialId: Number(it.rawMaterialId),
@@ -198,17 +182,16 @@ export function RecipesPage() {
   });
 
   const openCreate = () => {
-    setHeader({ name: "", description: "", productId: "" });
-    setVersion(EMPTY_VERSION());
+    setHeader(EMPTY_HEADER);
+    setForm(EMPTY_FORM());
     setError(null);
     setCreateOpen(true);
   };
 
-  const openNewVersion = (r: RecipeRow) => {
-    setVersionFor(null);
-    setVersion(EMPTY_VERSION());
+  const closeModals = () => {
+    setCreateOpen(false);
+    setEditing(null);
     setError(null);
-    setNewVersionFor(r);
   };
 
   const saveNew = async () => {
@@ -218,7 +201,7 @@ export function RecipesPage() {
       await api.post("/recipes", {
         ...header,
         productId: Number(header.productId),
-        version: versionBody(),
+        version: bodyPayload(),
       });
       setCreateOpen(false);
       load();
@@ -229,37 +212,53 @@ export function RecipesPage() {
     }
   };
 
-  const saveNewVersion = async () => {
-    if (!newVersionFor) return;
+  /** Carga los datos actuales en el formulario y abre el modal de edición. */
+  const openEdit = async (r: RecipeRow) => {
+    if (r.versionId == null) {
+      setError(`La receta "${r.name}" no tiene datos cargados.`);
+      return;
+    }
+    setError(null);
+    try {
+      const d = await api.get<RecipeDetail>(`/recipe-versions/${r.versionId}`);
+      setHeader({
+        name: r.name,
+        description: r.description ?? "",
+        productId: r.productId != null ? String(r.productId) : "",
+      });
+      setForm({
+        massId: d.massId != null ? String(d.massId) : "",
+        expectedYield: microToDecimalTrim(d.expectedYieldMicro, 6),
+        validFrom: d.validFrom,
+        items: d.items.map((it) => ({
+          rawMaterialId: String(it.rawMaterialId),
+          unitId: it.unitId,
+          qty: microToDecimalTrim(it.qtyMicro, 6),
+          phase: it.phase === "paquete" ? "paquete" : "masa",
+        })),
+      });
+      setEditing(r);
+    } catch (e) {
+      setError((e as ApiError).message);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
     setSaving(true);
     setError(null);
     try {
-      await api.post(`/recipes/${newVersionFor.id}/versions`, versionBody());
-      setNewVersionFor(null);
+      await api.put(`/recipes/${editing.id}`, {
+        name: header.name,
+        description: header.description || null,
+        version: bodyPayload(),
+      });
+      setEditing(null);
       load();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const openVersions = async (r: RecipeRow) => {
-    setError(null);
-    try {
-      const res = await api.get<{ versions: VersionListItem[] }>(`/recipes/${r.id}/versions`);
-      setVersionsList(res.versions);
-      setVersionFor(r);
-    } catch (e) {
-      setError((e as ApiError).message);
-    }
-  };
-
-  const openVersionDetail = async (versionId: number) => {
-    try {
-      setVersionDetail(await api.get<VersionDetail>(`/recipe-versions/${versionId}`));
-    } catch (e) {
-      setError((e as ApiError).message);
     }
   };
 
@@ -270,18 +269,18 @@ export function RecipesPage() {
   );
 
   const addItem = (phase: Phase) =>
-    setVersion((f) => ({
+    setForm((f) => ({
       ...f,
       items: [...f.items, { rawMaterialId: "", unitId: "", qty: "", phase }],
     }));
 
-  // Índices originales por fase (para editar/borrar sobre version.items).
+  // Índices originales por fase (para editar/borrar sobre form.items).
   const rowsByPhase = (phase: Phase) =>
-    version.items
+    form.items
       .map((it, i) => ({ it, i }))
       .filter((x) => x.it.phase === phase);
 
-  const itemsRow = (it: VersionForm["items"][number], i: number) => (
+  const itemsRow = (it: RecipeForm["items"][number], i: number) => (
     <tr key={i}>
       <td>
         <select
@@ -290,7 +289,7 @@ export function RecipesPage() {
           onChange={(e) => onMaterialChange(i, e.target.value)}
         >
           <option value="">Seleccione…</option>
-          {materials.map((m) => (
+          {materialOptions(it).map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
             </option>
@@ -325,7 +324,7 @@ export function RecipesPage() {
           className="text-slate-400 hover:text-red-600"
           title="Quitar línea"
           onClick={() =>
-            setVersion((f) => ({ ...f, items: f.items.filter((_, k) => k !== i) }))
+            setForm((f) => ({ ...f, items: f.items.filter((_, k) => k !== i) }))
           }
         >
           ✕
@@ -334,18 +333,20 @@ export function RecipesPage() {
     </tr>
   );
 
-  const itemsTable = (rows: { it: VersionForm["items"][number]; i: number }[]) => (
-    <table className="table-ny">
-      <thead>
-        <tr>
-          <th style={{ width: "44%" }}>Materia prima</th>
-          <th style={{ width: "20%" }}>Cantidad</th>
-          <th style={{ width: "20%" }}>Unidad</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>{rows.map((r) => itemsRow(r.it, r.i))}</tbody>
-    </table>
+  const itemsTable = (rows: { it: RecipeForm["items"][number]; i: number }[]) => (
+    <div className="overflow-x-auto">
+      <table className="table-ny min-w-[420px]">
+        <thead>
+          <tr>
+            <th style={{ width: "44%" }}>Materia prima</th>
+            <th style={{ width: "20%" }}>Cantidad</th>
+            <th style={{ width: "20%" }}>Unidad</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>{rows.map((r) => itemsRow(r.it, r.i))}</tbody>
+      </table>
+    </div>
   );
 
   const phaseBlock = (phase: Phase, emptyText: string) => {
@@ -371,15 +372,12 @@ export function RecipesPage() {
     );
   };
 
-  const versionFormFields = (
+  const recipeFields = (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-3 gap-3">
         <div className="field">
           <label>Masa destino *</label>
-          <select
-            value={version.massId}
-            onChange={(e) => setVersion({ ...version, massId: e.target.value })}
-          >
+          <select value={form.massId} onChange={(e) => setForm({ ...form, massId: e.target.value })}>
             <option value="">Seleccione…</option>
             {visibleMasses.map((m) => (
               <option key={m.id} value={m.id}>
@@ -398,10 +396,10 @@ export function RecipesPage() {
             Rendimiento esperado *{activeProduct ? " (paquetes por masa)" : ""}
           </label>
           <input
-            value={version.expectedYield}
+            value={form.expectedYield}
             inputMode="decimal"
             placeholder="0"
-            onChange={(e) => setVersion({ ...version, expectedYield: e.target.value })}
+            onChange={(e) => setForm({ ...form, expectedYield: e.target.value })}
           />
         </div>
         <div className="field">
@@ -412,30 +410,13 @@ export function RecipesPage() {
           />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="field">
-          <label>Vigente desde *</label>
-          <input
-            type="date"
-            max={todayISO()}
-            value={version.validFrom}
-            onChange={(e) => setVersion({ ...version, validFrom: e.target.value })}
-          />
-        </div>
-        <div className="field">
-          <label>Notas</label>
-          <input
-            value={version.notes}
-            onChange={(e) => setVersion({ ...version, notes: e.target.value })}
-          />
-        </div>
-      </div>
       <div className="field">
-        <label>Instrucciones</label>
-        <textarea
-          rows={2}
-          value={version.instructions}
-          onChange={(e) => setVersion({ ...version, instructions: e.target.value })}
+        <label>Vigente desde *</label>
+        <input
+          type="date"
+          max={todayISO()}
+          value={form.validFrom}
+          onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
         />
       </div>
 
@@ -447,7 +428,7 @@ export function RecipesPage() {
             consumen <strong>al terminar</strong>, por cada paquete real empaquetado.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button className="btn btn-secondary" onClick={() => addItem("masa")}>
             + Agregar ingrediente
           </button>
@@ -468,16 +449,18 @@ export function RecipesPage() {
     </div>
   );
 
-  const canSaveVersion =
-    Boolean(version.massId) &&
-    Boolean(version.expectedYield) &&
-    version.items.some((it) => it.rawMaterialId && it.qty);
+  const canSave =
+    Boolean(form.massId) &&
+    Boolean(form.expectedYield) &&
+    form.items.some((it) => it.rawMaterialId && it.qty);
+
+  const activeProducts = products.filter((p) => p.active);
 
   return (
     <div>
       <PageHeader
         title="Recetas"
-        subtitle="Una receta por producto, con fases masa/paquete y rendimiento en paquetes; la producción usa siempre la versión activa"
+        subtitle="Una receta por producto y sin versiones: edítala directamente; los ingredientes se consumen al elaborar y los empaques al empaquetar"
         actions={
           <button className="btn btn-primary" onClick={openCreate}>
             + Nueva receta
@@ -499,9 +482,8 @@ export function RecipesPage() {
               <th>Nombre</th>
               <th>Producto</th>
               <th>Masa</th>
-              <th className="num">Versión</th>
-              <th className="num">Rendimiento esp.</th>
-              <th className="num">Ingredientes</th>
+              <th className="num">Rendimiento</th>
+              <th className="num">Ítems</th>
               <th className="center">Estado</th>
               <th></th>
             </tr>
@@ -509,7 +491,7 @@ export function RecipesPage() {
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-slate-400">
+                <td colSpan={7} className="py-8 text-center text-slate-400">
                   Sin recetas registradas.
                 </td>
               </tr>
@@ -519,7 +501,6 @@ export function RecipesPage() {
                 <td className="font-medium">{r.name}</td>
                 <td>{r.productName ?? <span className="text-slate-400">Legado</span>}</td>
                 <td>{r.massName ?? "—"}</td>
-                <td className="num">v{r.version ?? "—"}</td>
                 <td className="num">
                   {r.expectedYieldMicro != null
                     ? fmtQty(r.expectedYieldMicro, r.yieldUnitId)
@@ -530,11 +511,8 @@ export function RecipesPage() {
                   {r.active ? <Badge tone="green">Activa</Badge> : <Badge tone="red">Inactiva</Badge>}
                 </td>
                 <td className="text-right">
-                  <button className="btn btn-secondary mr-2" onClick={() => openVersions(r)}>
-                    Versiones
-                  </button>
-                  <button className="btn btn-secondary" onClick={() => openNewVersion(r)}>
-                    + Versión
+                  <button className="btn btn-secondary" onClick={() => openEdit(r)}>
+                    Editar
                   </button>
                 </td>
               </tr>
@@ -544,7 +522,7 @@ export function RecipesPage() {
       </div>
 
       {createOpen && (
-        <Modal title="Nueva receta" onClose={() => setCreateOpen(false)} wide>
+        <Modal title="Nueva receta" onClose={closeModals} wide>
           <div className="flex flex-col gap-3">
             <ErrorAlert message={error} />
             <div className="grid grid-cols-2 gap-3">
@@ -572,12 +550,10 @@ export function RecipesPage() {
               <label>Producto terminado * (una receta por producto)</label>
               <select
                 value={header.productId}
-                onChange={(e) =>
-                  setHeader({ ...header, productId: e.target.value })
-                }
+                onChange={(e) => setHeader({ ...header, productId: e.target.value })}
               >
                 <option value="">Seleccione…</option>
-                {products
+                {activeProducts
                   .filter((p) => !usedProductIds.has(p.id))
                   .map((p) => (
                     <option key={p.id} value={p.id}>
@@ -585,27 +561,21 @@ export function RecipesPage() {
                     </option>
                   ))}
               </select>
-              {products.filter((p) => !usedProductIds.has(p.id)).length === 0 && (
+              {activeProducts.filter((p) => !usedProductIds.has(p.id)).length === 0 && (
                 <span className="mt-1 block text-xs text-amber-600">
                   Todos los productos activos ya tienen una receta.
                 </span>
               )}
             </div>
-            <h3 className="mt-2 text-sm font-bold text-slate-700">Versión 1 (activa)</h3>
-            {versionFormFields}
+            {recipeFields}
             <div className="mt-2 flex justify-end gap-2">
-              <button className="btn btn-secondary" onClick={() => setCreateOpen(false)}>
+              <button className="btn btn-secondary" onClick={closeModals}>
                 Cancelar
               </button>
               <button
                 className="btn btn-primary"
                 onClick={saveNew}
-                disabled={
-                  saving ||
-                  !header.name.trim() ||
-                  !header.productId ||
-                  !canSaveVersion
-                }
+                disabled={saving || !header.name.trim() || !header.productId || !canSave}
               >
                 {saving ? "Guardando..." : "Crear receta"}
               </button>
@@ -614,142 +584,45 @@ export function RecipesPage() {
         </Modal>
       )}
 
-      {newVersionFor && (
-        <Modal
-          title={`Nueva versión — ${newVersionFor.name}`}
-          onClose={() => setNewVersionFor(null)}
-          wide
-        >
+      {editing && (
+        <Modal title={`Editar receta — ${editing.name}`} onClose={closeModals} wide>
           <div className="flex flex-col gap-3">
             <ErrorAlert message={error} />
-            <div className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700">
-              La versión actual v{newVersionFor.version} quedará archivada; solo las producciones
-              futuras usarán esta nueva versión.
-            </div>
-            {versionFormFields}
-            <div className="mt-2 flex justify-end gap-2">
-              <button className="btn btn-secondary" onClick={() => setNewVersionFor(null)}>
-                Cancelar
-              </button>
-              <button className="btn btn-primary" onClick={saveNewVersion} disabled={saving || !canSaveVersion}>
-                {saving ? "Guardando..." : "Crear versión"}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {versionFor && versionsList && (
-        <Modal
-          title={`Versiones — ${versionFor.name}`}
-          onClose={() => setVersionFor(null)}
-        >
-          <table className="table-ny">
-            <thead>
-              <tr>
-                <th className="num">Versión</th>
-                <th className="center">Estado</th>
-                <th>Masa</th>
-                <th className="num">Rendimiento</th>
-                <th>Vigente desde</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {versionsList.map((v) => (
-                <tr key={v.id}>
-                  <td className="num font-semibold">v{v.version}</td>
-                  <td className="center">
-                    {v.status === "activa" ? <Badge tone="green">Activa</Badge> : <Badge tone="slate">Archivada</Badge>}
-                  </td>
-                  <td>{v.massName ?? "—"}</td>
-                  <td className="num">{fmtQty(v.expectedYieldMicro, v.yieldUnitId)}</td>
-                  <td>{v.validFrom}</td>
-                  <td className="text-right">
-                    <button className="btn btn-secondary" onClick={() => openVersionDetail(v.id)}>
-                      Ver
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-4 flex justify-end">
-            <button className="btn btn-secondary" onClick={() => setVersionFor(null)}>
-              Cerrar
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {versionDetail && (
-        <Modal
-          title={`${versionDetail.recipeName} v${versionDetail.version} — ${versionDetail.status}`}
-          onClose={() => setVersionDetail(null)}
-          wide
-        >
-          <div className="mb-4 grid grid-cols-5 gap-4 text-sm">
-            <div>
-              <div className="text-slate-500">Producto</div>
-              <div className="font-semibold">{versionDetail.productName ?? "—"}</div>
-            </div>
-            <div>
-              <div className="text-slate-500">Masa destino</div>
-              <div className="font-semibold">{versionDetail.massName ?? "—"}</div>
-            </div>
-            <div>
-              <div className="text-slate-500">Rendimiento esperado</div>
-              <div className="font-semibold">
-                {fmtQty(versionDetail.expectedYieldMicro, versionDetail.yieldUnitId)}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="field">
+                <label>Nombre *</label>
+                <input
+                  value={header.name}
+                  onChange={(e) => setHeader({ ...header, name: e.target.value })}
+                  autoFocus
+                />
+              </div>
+              <div className="field">
+                <label>Descripción</label>
+                <input
+                  value={header.description}
+                  onChange={(e) => setHeader({ ...header, description: e.target.value })}
+                />
               </div>
             </div>
-            <div>
-              <div className="text-slate-500">Vigente desde</div>
-              <div className="font-semibold">{versionDetail.validFrom}</div>
+            <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              Producto: <strong>{editing.productName ?? "—"}</strong>
+              {activeProduct ? ` (se vende en ${activeProduct.saleUnitId})` : ""} — la receta se
+              guarda sobre la misma ficha, sin crear versiones.
             </div>
-            <div>
-              <div className="text-slate-500">Estado</div>
-              {versionDetail.status === "activa" ? (
-                <Badge tone="green">Activa</Badge>
-              ) : (
-                <Badge tone="slate">Archivada</Badge>
-              )}
+            {recipeFields}
+            <div className="mt-2 flex justify-end gap-2">
+              <button className="btn btn-secondary" onClick={closeModals}>
+                Cancelar
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={saveEdit}
+                disabled={saving || !header.name.trim() || !canSave}
+              >
+                {saving ? "Guardando..." : "Guardar cambios"}
+              </button>
             </div>
-          </div>
-          {versionDetail.instructions && (
-            <div className="mb-4 rounded-md bg-slate-50 p-3 text-sm text-slate-700">
-              <div className="mb-1 text-xs font-bold text-slate-500">INSTRUCCIONES</div>
-              {versionDetail.instructions}
-            </div>
-          )}
-          <table className="table-ny">
-            <thead>
-              <tr>
-                <th>Ingrediente</th>
-                <th>Fase</th>
-                <th className="num">Cantidad</th>
-              </tr>
-            </thead>
-            <tbody>
-              {versionDetail.items.map((it) => (
-                <tr key={it.id}>
-                  <td>{it.materialName}</td>
-                  <td>
-                    {it.phase === "paquete" ? (
-                      <Badge tone="blue">Paquete</Badge>
-                    ) : (
-                      <Badge tone="slate">Masa</Badge>
-                    )}
-                  </td>
-                  <td className="num font-semibold">{fmtQty(it.qtyMicro, it.unitLabel)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-4 flex justify-end">
-            <button className="btn btn-secondary" onClick={() => setVersionDetail(null)}>
-              Cerrar
-            </button>
           </div>
         </Modal>
       )}

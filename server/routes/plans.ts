@@ -14,6 +14,17 @@ import { handle, idParam } from "./helpers";
 
 export const plansRouter = Router();
 
+const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+const listQuery = z.object({
+  from: z.string().regex(dateRe).optional(),
+  to: z.string().regex(dateRe).optional(),
+});
+
+plansRouter.get("/", (req, res) => {
+  const opts = listQuery.parse(req.query);
+  res.json({ ok: true, data: listPlans(handle(req).db, opts) });
+});
+
 const annulBody = z.object({
   reason: z.string().trim().min(3, "Indique el motivo de anulación.").max(300),
 });
@@ -24,10 +35,6 @@ plansRouter.post("/preview", (req, res) => {
   const h = handle(req);
   const input = planPreviewInput.parse(req.body);
   res.json({ ok: true, data: previewPlan(h.db, h.units, input) });
-});
-
-plansRouter.get("/", (_req, res) => {
-  res.json({ ok: true, data: listPlans(handle(_req).db) });
 });
 
 plansRouter.get("/:id", (req, res) => {

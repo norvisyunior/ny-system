@@ -47,11 +47,14 @@ export const recipeCreateInput = z.object({
 });
 export type RecipeCreateInput = z.infer<typeof recipeCreateInput>;
 
+/** Edición de la receta y de su única versión vigente (sin crear versiones). */
 export const recipeUpdateInput = z.object({
-  name: z.string().trim().min(2).max(120),
+  name: z.string().trim().min(2, "El nombre debe tener al menos 2 caracteres.").max(120),
   description: z.string().trim().max(500).optional().nullable(),
   active: z.boolean().optional(),
+  version: versionInput,
 });
+export type RecipeUpdateInput = z.infer<typeof recipeUpdateInput>;
 
 function validateVersionItems(
   catalog: UnitsCatalog,
@@ -187,78 +190,88 @@ export function createRecipe(db: DBOrTx, catalog: UnitsCatalog, input: RecipeCre
   });
 }
 
-/** Nueva versión de una receta existente; la anterior versión activa queda archivada. */
-export function createRecipeVersion(
+/**
+ * Edita la receta y su única versión vigente en el mismo lugar:
+ * los lotes y terminaciones confirmados conservan sus datos históricos.
+ */
+export function updateRecipe(
   db: DBOrTx,
   catalog: UnitsCatalog,
-  recipeId: number,
-  input: VersionInput,
+  id: number,
+  input: RecipeUpdateInput,
 ) {
   return db.transaction((tx) => {
-    const recipe = tx.select().from(recipes).where(eq(recipes.id, recipeId)).get();
+    const recipe = tx.select().from(recipes).where(eq(recipes.id, id)).get();
     if (!recipe) throw notFoundError("Receta");
-    validateVersionItems(catalog, tx, input, recipe);
-
-    const maxV = tx
-      .select({ maxV: sql<number>`COALESCE(MAX(${recipeVersions.version}), 0)` })
-      .from(recipeVersions)
-      .where(eq(recipeVersions.recipeId, recipeId))
-      .get();
-    const newVersion = (maxV?.maxV ?? 0) + 1;
-
-    tx.update(recipeVersions)
-      .set({ status: "archivada" })
-      .where(and(eq(recipeVersions.recipeId, recipeId), eq(recipeVersions.status, "activa")))
-      .run();
-
-    const versionId = insertVersionWithItems(tx, recipeId, newVersion, input);
-    tx.update(recipes).set({ updatedAt: new Date().toISOString() }).where(eq(recipes.id, recipeId)).run();
-
-    logAudit(tx, {
-      action: "recipe.version",
-      entityType: "recipe",
-      entityId: recipeId,
-      summary: `Receta "${recipe.name}" v${newVersion} creada (anterior archivada)`,
-      details: { versionId, expectedYield: input.expectedYield },
-    });
-    return { recipeId, versionId, version: newVersion };
-  });
-}
-
-export function updateRecipe(db: DBOrTx, id: number, input: z.infer<typeof recipeUpdateInput>) {
-  return db.transaction((tx) => {
-    const existing = tx.select().from(recipes).where(eq(recipes.id, id)).get();
-    if (!existing) throw notFoundError("Receta");
     const dup = tx
       .select({ id: recipes.id })
       .from(recipes)
       .where(sql`upper(${recipes.name}) = upper(${input.name}) AND ${recipes.id} <> ${id}`)
       .get();
     if (dup) throw domainError(`Ya existe otra receta con el nombre "${input.name}".`);
+
+    validateVersionItems(catalog, tx, input.version, recipe);
+
+    const activeVersion = tx
+      .select()
+      .from(recipeVersions)
+      .where(and(eq(recipeVersions.recipeId, id), eq(recipeVersions.status, "activa")))
+      .orderBy(desc(recipeVersions.version))
+      .get();
+    if (!activeVersion) throw domainError("La receta no tiene una versión vigente.");
+
+    tx.update(recipeVersions)
+      .set({
+        massId: input.version.massId,
+        expectedYieldMicro: input.version.expectedYield,
+        yieldUnitId: input.version.yieldUnitId,
+        instructions: input.version.instructions ?? null,
+        validFrom: input.version.validFrom,
+        notes: input.version.notes ?? null,
+      })
+      .where(eq(recipeVersions.id, activeVersion.id))
+      .run();
+
+    tx.delete(recipeItems).where(eq(recipeItems.recipeVersionId, activeVersion.id)).run();
+    for (const item of input.version.items) {
+      tx.insert(recipeItems)
+        .values({
+          recipeVersionId: activeVersion.id,
+          rawMaterialId: item.rawMaterialId,
+          unitId: item.unitId,
+          qtyMicro: item.qty,
+          phase: item.phase,
+        })
+        .run();
+    }
+
     const [row] = tx
       .update(recipes)
       .set({
         name: input.name,
         description: input.description ?? null,
-        active: input.active ?? existing.active,
+        active: input.active ?? recipe.active,
         updatedAt: new Date().toISOString(),
       })
       .where(eq(recipes.id, id))
       .returning()
       .all();
+
     logAudit(tx, {
       action: "update",
       entityType: "recipe",
       entityId: id,
       summary: `Receta actualizada: ${row.name}`,
+      details: { versionId: activeVersion.id, items: input.version.items.length },
     });
-    return row;
+    return { ...row, versionId: activeVersion.id, version: activeVersion.version };
   });
 }
 
 export interface RecipeListRow {
   id: number;
   name: string;
+  description: string | null;
   active: boolean;
   productId: number | null;
   productName: string | null;
@@ -277,6 +290,7 @@ export function listRecipes(db: DBOrTx): RecipeListRow[] {
     .select({
       id: recipes.id,
       name: recipes.name,
+      description: recipes.description,
       active: recipes.active,
       productId: recipes.productId,
       productName: finishedProducts.name,
@@ -297,34 +311,6 @@ export function listRecipes(db: DBOrTx): RecipeListRow[] {
     .all()
     .filter((r) => r.rn === 1);
   return rows;
-}
-
-export function getRecipeVersions(db: DBOrTx, recipeId: number) {
-  const recipe = db.select().from(recipes).where(eq(recipes.id, recipeId)).get();
-  if (!recipe) throw notFoundError("Receta");
-  const product = recipe.productId
-    ? db.select().from(finishedProducts).where(eq(finishedProducts.id, recipe.productId)).get()
-    : undefined;
-  const versions = db
-    .select({
-      id: recipeVersions.id,
-      version: recipeVersions.version,
-      status: recipeVersions.status,
-      massId: recipeVersions.massId,
-      massName: masses.name,
-      expectedYieldMicro: recipeVersions.expectedYieldMicro,
-      yieldUnitId: recipeVersions.yieldUnitId,
-      instructions: recipeVersions.instructions,
-      validFrom: recipeVersions.validFrom,
-      notes: recipeVersions.notes,
-      createdAt: recipeVersions.createdAt,
-    })
-    .from(recipeVersions)
-    .leftJoin(masses, eq(masses.id, recipeVersions.massId))
-    .where(eq(recipeVersions.recipeId, recipeId))
-    .orderBy(desc(recipeVersions.version))
-    .all();
-  return { recipe, product, versions };
 }
 
 export function getRecipeVersionDetail(db: DBOrTx, versionId: number) {

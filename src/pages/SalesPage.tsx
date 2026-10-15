@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import {
   Badge,
+  DayFilter,
   ErrorAlert,
   Modal,
   SearchInput,
@@ -92,9 +93,15 @@ export function SalesPage() {
   const [annulReason, setAnnulReason] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Día visible: por defecto hoy; se cambia con el filtro de fecha.
+  const [date, setDate] = useState(todayISO());
+
   const load = useCallback(() => {
-    api.get<SaleRow[]>("/sales").then(setRows).catch((e: ApiError) => setError(e.message));
-  }, []);
+    api
+      .get<SaleRow[]>(`/sales?from=${date}&to=${date}`)
+      .then(setRows)
+      .catch((e: ApiError) => setError(e.message));
+  }, [date]);
   useEffect(load, [load]);
   useEffect(() => {
     api
@@ -238,10 +245,17 @@ export function SalesPage() {
 
       {view === "list" && (
         <>
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <SearchInput value={q} onChange={setQ} placeholder="Buscar por número, fecha o método…" />
-            <span className="text-sm text-slate-500">{filtered.length} venta(s)</span>
+            <div className="flex items-center gap-3">
+              <DayFilter date={date} onChange={setDate} />
+              <span className="text-sm text-slate-500">{filtered.length} venta(s)</span>
+            </div>
           </div>
+          <p className="mb-3 text-xs text-slate-500">
+            Mostrando las ventas del día seleccionado. Para ver otro día, cámbielo en el filtro de la
+            derecha.
+          </p>
           <div className="card overflow-hidden">
             <table className="table-ny">
               <thead>

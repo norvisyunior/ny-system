@@ -9,7 +9,7 @@
   rawMaterials,
   transformations,
 } from "../../db/schema";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
@@ -342,7 +342,10 @@ export interface PlanListRow {
   createdAt: string;
 }
 
-export function listPlans(db: DBOrTx): PlanListRow[] {
+export function listPlans(db: DBOrTx, opts: { from?: string; to?: string } = {}): PlanListRow[] {
+  const conds = [];
+  if (opts.from) conds.push(sql`${productionPlans.planDate} >= ${opts.from}`);
+  if (opts.to) conds.push(sql`${productionPlans.planDate} <= ${opts.to}`);
   return db
     .select({
       id: productionPlans.id,
@@ -368,6 +371,7 @@ export function listPlans(db: DBOrTx): PlanListRow[] {
     .innerJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
     .leftJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
     .leftJoin(masses, eq(masses.id, recipeVersions.massId))
+    .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(productionPlans.planDate), desc(productionPlans.number))
     .all();
 }
