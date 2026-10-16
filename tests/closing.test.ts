@@ -4,7 +4,7 @@ import { lastClosedDate } from "../server/domain/dates";
 import { closeDay, getClosing, reopenDay } from "../server/services/closings";
 import { listSales, confirmSale, saleInput } from "../server/services/sales";
 import { createExpense, expenseInput } from "../server/services/expenses";
-import { produce, sell, setupFlow, transform } from "./helpers";
+import { produce, sell, setupFlow, shiftIso, transform } from "./helpers";
 import type { Flow } from "./helpers";
 
 function sellSomething(flow: Flow) {
@@ -161,7 +161,8 @@ describe("Cierre diario", () => {
 
   it("solo permite reabrir el último día cerrado", () => {
     const flow = setupFlow();
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    // Ayer en zona local (derivado de hoy, no de UTC): evita cruzar la medianoche UTC
+    const yesterday = shiftIso(flow.today, -1);
     closeDay(flow.h.db, { businessDate: yesterday, counts: [] });
     sellSomething(flow);
     closeDay(flow.h.db, { businessDate: flow.today, counts: [] });

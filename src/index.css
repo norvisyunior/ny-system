@@ -1,9 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  --ny-sidebar: #0b1220;
-  --ny-sidebar-hover: #162033;
-  --ny-sidebar-active: #1d4ed8;
+  /* Paleta de marca */
+  --ny-brand: #0f2925;
+  --ny-brand-soft: #173f38;
+  --ny-brand-accent: #0f766e;
+  --ny-sales: #059669;
+  --ny-costs: #2563eb;
+  --ny-gross: #7c3aed;
+  --ny-expenses: #ea580c;
+  --ny-net: #047857;
+  --ny-warn: #eab308;
+  --ny-danger: #dc2626;
+  --ny-bg: #f3f6fa;
+  --ny-border: #e2e8f0;
+  --ny-text: #172b4d;
+  --ny-muted: #64748b;
+  --ny-faint: #94a3b8;
+
+  --ny-sidebar: #0f2925;
+  --ny-sidebar-hover: #173f38;
+  --ny-sidebar-active: #0f7669;
 }
 
 html,
@@ -22,8 +39,8 @@ body {
     "Helvetica Neue",
     Arial,
     sans-serif;
-  background: #f1f5f9;
-  color: #0f172a;
+  background: var(--ny-bg);
+  color: var(--ny-text);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -124,11 +141,11 @@ body {
   cursor: not-allowed;
 }
 .btn-primary {
-  background: #1d4ed8;
+  background: var(--ny-brand-accent);
   color: #fff;
 }
 .btn-primary:hover:not(:disabled) {
-  background: #1e40af;
+  background: #0b5f58;
 }
 .btn-secondary {
   background: #fff;
@@ -176,9 +193,34 @@ body {
 
 .card {
   background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.75rem;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+  border: 1px solid var(--ny-border);
+  border-radius: 0.85rem;
+  box-shadow: 0 1px 3px rgb(15 41 37 / 0.06);
+}
+
+/* Selector de fecha del dashboard: resalta el ícono nativo del calendario */
+.date-highlight::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  background-color: #34d399;
+  opacity: 0.85;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  animation: cal-glow 2s ease-in-out infinite;
+}
+.date-highlight::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  transform: scale(1.08);
+  animation-play-state: paused;
+}
+@keyframes cal-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(52 211 153 / 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgb(52 211 153 / 0);
+  }
 }
 
 /* Scrollbars estilizados (global) */
@@ -208,7 +250,7 @@ body {
 
 /* Scrollbar del sidebar (fondo oscuro) */
 .sidebar-scroll {
-  scrollbar-color: #334155 rgb(11 18 32 / 0.4);
+  scrollbar-color: #2f5a52 rgb(15 41 37 / 0.4);
   overscroll-behavior: contain;
 }
 .sidebar-scroll::-webkit-scrollbar {
@@ -218,13 +260,13 @@ body {
   background: rgb(255 255 255 / 0.03);
 }
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  background-color: #334155;
+  background-color: #2f5a52;
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: #475569;
+  background-color: #3f7a6f;
 }
 
 /* Contenedores con scroll interno: scrollbar ligera sobre fondo claro */

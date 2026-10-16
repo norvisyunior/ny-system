@@ -34,6 +34,17 @@ export function newDb(): DbHandle {
   return createDb(":memory:");
 }
 
+/**
+ * Desplaza una fecha ISO ±N días usando la zona local del sistema.
+ * Evita el desfase de `toISOString()` (UTC) alrededor de la medianoche.
+ */
+export function shiftIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export interface SetupOptions {
   /** Paquetes esperados por masa (por defecto 10). */
   yieldPerMass?: string;

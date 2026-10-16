@@ -43,10 +43,10 @@ import { productInput, createProduct } from "../server/services/products";
 import { massInput, createMass } from "../server/services/masses";
 import { createPurchase, purchaseInput } from "../server/services/purchases";
 import { closeDay, reopenDay } from "../server/services/closings";
-import { setupFlow, transform, productStock, massStock, rawStock, bolsaStock, produce } from "./helpers";
+import { setupFlow, shiftIso, transform, productStock, massStock, rawStock, bolsaStock, produce } from "./helpers";
 import type { Flow } from "./helpers";
 
-const yesterdayISO = () => new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+const yesterdayISO = (today: string) => shiftIso(today, -1);
 
 function flowYield80() {
   return setupFlow({ yieldPerMass: "80" });
@@ -150,7 +150,7 @@ describe("§13 Elaboración de masas (solo enteras)", () => {
 
   it("5. produce ayer y termina hoy: las masas se elaboran un día y se usan otro", () => {
     const flow = setupFlow();
-    const yesterday = yesterdayISO();
+    const yesterday = yesterdayISO(flow.today);
 
     const batch = confirmProduction(
       flow.h.db,

@@ -85,8 +85,6 @@ export function SalesPage() {
   const [form, setForm] = useState({
     saleDate: todayISO(),
     paymentMethod: "efectivo",
-    discount: "",
-    notes: "",
     items: [{ productId: "", qty: "", price: "" }] as ItemRow[],
   });
   const [detail, setDetail] = useState<SaleDetail | null>(null);
@@ -114,8 +112,6 @@ export function SalesPage() {
     setForm({
       saleDate: todayISO(),
       paymentMethod: "efectivo",
-      discount: "",
-      notes: "",
       items: [{ productId: "", qty: "", price: "" }],
     });
     setError(null);
@@ -149,16 +145,7 @@ export function SalesPage() {
     }
   };
 
-  const subtotal = form.items.reduce((acc, it) => acc + lineTotal(it), 0);
-  const discount = (() => {
-    try {
-      const d = Math.round(Number(form.discount || "0") * 1_000_000);
-      return Number.isFinite(d) && d > 0 ? d : 0;
-    } catch {
-      return 0;
-    }
-  })();
-  const total = Math.max(subtotal - discount, 0);
+  const total = form.items.reduce((acc, it) => acc + lineTotal(it), 0);
 
   const save = async () => {
     setSaving(true);
@@ -175,8 +162,6 @@ export function SalesPage() {
       await api.post("/sales", {
         saleDate: form.saleDate,
         paymentMethod: form.paymentMethod,
-        discount: form.discount || undefined,
-        notes: form.notes || null,
         items,
       });
       setView("list");
@@ -363,7 +348,7 @@ export function SalesPage() {
 
       {view === "form" && (
         <div className="card p-5">
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="field">
               <label>Fecha (día en curso) *</label>
               <input type="date" value={form.saleDate} max={todayISO()} disabled />
@@ -379,22 +364,6 @@ export function SalesPage() {
                 <option value="transferencia">Transferencia</option>
                 <option value="otro">Otro</option>
               </select>
-            </div>
-            <div className="field">
-              <label>Descuento ($)</label>
-              <input
-                value={form.discount}
-                inputMode="decimal"
-                placeholder="0.00"
-                onChange={(e) => setForm({ ...form, discount: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>Notas</label>
-              <input
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              />
             </div>
           </div>
 
@@ -484,20 +453,6 @@ export function SalesPage() {
               })}
             </tbody>
             <tfoot>
-              <tr>
-                <td colSpan={4} className="text-right text-sm font-bold">
-                  SUBTOTAL
-                </td>
-                <td className="num font-semibold">{fmtMoney(subtotal)}</td>
-                <td></td>
-              </tr>
-              <tr>
-                <td colSpan={4} className="text-right text-sm font-bold">
-                  DESCUENTO
-                </td>
-                <td className="num text-red-600">−{fmtMoney(discount)}</td>
-                <td></td>
-              </tr>
               <tr>
                 <td colSpan={4} className="text-right text-base font-bold">
                   TOTAL
