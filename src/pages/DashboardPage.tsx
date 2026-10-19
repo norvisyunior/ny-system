@@ -8,7 +8,6 @@ import { InsightCard } from "../components/dashboard/InsightCard";
 import { InventoryCard } from "../components/dashboard/InventoryCard";
 import { KpiCard, type KpiDelta } from "../components/dashboard/KpiCard";
 import { ProductionStatusCard } from "../components/dashboard/ProductionStatusCard";
-import { RecentProductionsTable } from "../components/dashboard/RecentProductionsTable";
 import { SalesCostChart } from "../components/dashboard/SalesCostChart";
 import { SalesMixDonut } from "../components/dashboard/SalesMixDonut";
 import { TopProductsCard } from "../components/dashboard/TopProductsCard";
@@ -40,20 +39,23 @@ function vsYesterday(
 }
 
 export function DashboardPage() {
-  const { date, setNotificationCount } = useSelectedDate();
+  const { date, viewMode, setNotificationCount } = useSelectedDate();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setError(null);
+    const url = viewMode === "totals" ? "/dashboard?totals=1" : `/dashboard?date=${date}`;
     api
-      .get<DashboardData>(`/dashboard?date=${date}`)
+      .get<DashboardData>(url)
       .then(setData)
       .catch((e: ApiError) => setError(e.message));
-  }, [date]);
+  }, [date, viewMode]);
   useEffect(load, [load]);
 
-  const prevDay: DailyPoint | undefined = data?.daily[data.daily.length - 2];
+  const isTotals = viewMode === "totals" || data?.mode === "totals";
+  const prevDay: DailyPoint | undefined =
+    isTotals ? undefined : data?.daily[data.daily.length - 2];
 
   useEffect(() => {
     if (!data) return;
@@ -63,7 +65,7 @@ export function DashboardPage() {
   const kpis = data
     ? [
         {
-          label: "Ventas del día",
+          label: isTotals ? "Ventas totales" : "Ventas del día",
           value: fmtMoney(data.salesMicro),
           sub: `${data.salesCount} ${data.salesCount === 1 ? "venta" : "ventas"}`,
           delta: vsYesterday(data.salesMicro, prevDay, (p) => p.salesMicro, true),
@@ -71,7 +73,7 @@ export function DashboardPage() {
           tone: "sales" as const,
         },
         {
-          label: "Costo de ventas",
+          label: isTotals ? "Costo total de ventas" : "Costo de ventas",
           value: fmtMoney(data.cogsMicro),
           sub: pctOf(data.cogsMicro, data.salesMicro)
             ? `${pctOf(data.cogsMicro, data.salesMicro)} del total`
@@ -81,7 +83,7 @@ export function DashboardPage() {
           tone: "costs" as const,
         },
         {
-          label: "Utilidad bruta",
+          label: isTotals ? "Margen bruto total" : "Utilidad bruta",
           value: fmtMoney(data.grossMicro),
           sub: pctOf(data.grossMicro, data.salesMicro)
             ? `${pctOf(data.grossMicro, data.salesMicro)} de margen`
@@ -91,7 +93,7 @@ export function DashboardPage() {
           tone: "gross" as const,
         },
         {
-          label: "Gastos operativos",
+          label: isTotals ? "Gastos totales" : "Gastos operativos",
           value: fmtMoney(data.expensesMicro),
           sub: pctOf(data.expensesMicro, data.salesMicro)
             ? `${pctOf(data.expensesMicro, data.salesMicro)} del total`
@@ -101,7 +103,7 @@ export function DashboardPage() {
           tone: "expenses" as const,
         },
         {
-          label: "Resultado neto",
+          label: isTotals ? "Utilidad neta total" : "Resultado neto",
           value: fmtMoney(data.netMicro),
           sub: pctOf(data.netMicro, data.salesMicro)
             ? `${pctOf(data.netMicro, data.salesMicro)} de margen`
@@ -139,21 +141,18 @@ export function DashboardPage() {
           </div>
 
           {/* Columna principal + columna lateral */}
-          <div className="grid items-start gap-4 xl:grid-cols-3">
-            <div className="min-w-0 space-y-4 xl:col-span-2">
-              <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2.3fr)_minmax(0,0.85fr)]">
+            <div className="min-w-0 space-y-4">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
                 <SalesCostChart data={data.daily} />
                 <SalesMixDonut rows={data.dayProductSales} />
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-2">
-                <ProductionStatusCard data={data} />
-                <InventoryCard data={data} />
-              </div>
+              <InventoryCard data={data} />
 
-              <div className="grid gap-4 lg:grid-cols-2">
-                <RecentProductionsTable rows={data.recentProductions} />
-                <TopProductsCard rows={data.dayProductSales} />
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <TopProductsCard rows={data.dayProductSales} totals={isTotals} />
+                <ProductionStatusCard data={data} />
               </div>
 
               {/* Semana y mes */}
@@ -166,49 +165,87 @@ export function DashboardPage() {
                     </span>
                   </h2>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="table-ny">
-                    <thead>
-                      <tr>
-                        <th>Período</th>
-                        <th className="num">Ventas</th>
-                        <th className="num">Costo</th>
-                        <th className="num">Margen bruto</th>
-                        <th className="num">Gastos</th>
-                        <th className="num">Utilidad neta</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {([["Últimos 7 días", data.week], ["Mes en curso", data.month]] as const).map(
-                        ([label, s]) => (
-                          <tr key={label}>
-                            <td>
-                              <div className="font-semibold text-slate-800">{label}</div>
-                              <div className="text-xs text-slate-400">
+                <div className="grid gap-0 md:grid-cols-2">
+                  {([["Últimos 7 días", data.week], ["Mes en curso", data.month]] as const).map(
+                    ([label, s], idx) => {
+                      const netPct = s.salesMicro > 0 ? (s.netMicro / s.salesMicro) * 100 : null;
+                      const netNegative = s.netMicro < 0;
+                      return (
+                        <div
+                          key={label}
+                          className={`flex min-w-0 flex-col gap-3 p-4 ${
+                            idx === 0 ? "border-b border-slate-100 md:border-b-0 md:border-r" : ""
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                            <div className="min-w-0">
+                              <div className="text-[13px] font-bold text-slate-800">{label}</div>
+                              <div className="mt-0.5 text-[11px] tabular-nums text-slate-400">
                                 {s.from} → {s.to}
                               </div>
-                            </td>
-                            <td className="num font-semibold">{fmtMoney(s.salesMicro)}</td>
-                            <td className="num text-slate-500">{fmtMoney(s.cogsMicro)}</td>
-                            <td className="num">{fmtMoney(s.grossMicro)}</td>
-                            <td className="num text-slate-500">{fmtMoney(s.expensesMicro)}</td>
-                            <td
-                              className={`num font-bold ${
-                                s.netMicro < 0 ? "text-red-600" : "text-emerald-700"
+                            </div>
+                            {netPct !== null && (
+                              <span
+                                className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums ${
+                                  netNegative
+                                    ? "bg-red-50 text-red-600"
+                                    : "bg-emerald-50 text-emerald-700"
+                                }`}
+                              >
+                                {fmtPct(netPct)} de ventas
+                              </span>
+                            )}
+                          </div>
+
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Utilidad neta
+                            </div>
+                            <div
+                              className={`text-2xl font-bold tabular-nums tracking-tight ${
+                                netNegative ? "text-red-600" : "text-emerald-700"
                               }`}
                             >
                               {fmtMoney(s.netMicro)}
-                              {s.salesMicro > 0 && (
-                                <div className="text-[11px] font-normal text-slate-400">
-                                  {fmtPct((s.netMicro / s.salesMicro) * 100)} de ventas
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        ),
-                      )}
-                    </tbody>
-                  </table>
+                            </div>
+                          </div>
+
+                          {netPct !== null && (
+                            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                              <div
+                                className={`h-full rounded-full transition-[width] duration-500 ${
+                                  netNegative ? "bg-red-500" : "bg-emerald-500"
+                                }`}
+                                style={{
+                                  width: `${Math.min(100, Math.max(0, netPct))}%`,
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-100 pt-3 sm:grid-cols-4 md:grid-cols-2 xl:grid-cols-4">
+                            {(
+                              [
+                                ["Ventas", s.salesMicro, "text-slate-900 font-bold"],
+                                ["Costo", s.cogsMicro, "text-slate-600 font-semibold"],
+                                ["Margen bruto", s.grossMicro, "text-slate-900 font-bold"],
+                                ["Gastos", s.expensesMicro, "text-slate-600 font-semibold"],
+                              ] as const
+                            ).map(([rowLabel, value, rowClass]) => (
+                              <div key={rowLabel} className="min-w-0">
+                                <dt className="truncate text-[11px] text-slate-400">{rowLabel}</dt>
+                                <dd
+                                  className={`whitespace-nowrap text-[13px] tabular-nums ${rowClass}`}
+                                >
+                                  {fmtMoney(value)}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        </div>
+                      );
+                    },
+                  )}
                 </div>
               </section>
             </div>

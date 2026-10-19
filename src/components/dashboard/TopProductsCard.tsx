@@ -3,7 +3,7 @@ import { Trophy } from "lucide-react";
 import { fmtMoney, fmtQty } from "../ui";
 import { CHART_COLORS, type DayProductSalesRow } from "./types";
 
-export function TopProductsCard({ rows }: { rows: DayProductSalesRow[] }) {
+export function TopProductsCard({ rows, totals }: { rows: DayProductSalesRow[]; totals?: boolean }) {
   const ordered = [...rows].sort((a, b) => b.totalMicro - a.totalMicro);
   const total = ordered.reduce((acc, r) => acc + r.totalMicro, 0);
   const max = ordered[0]?.totalMicro ?? 1;
@@ -24,7 +24,7 @@ export function TopProductsCard({ rows }: { rows: DayProductSalesRow[] }) {
 
       {ordered.length === 0 ? (
         <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-4 text-center text-sm text-slate-400">
-          Sin ventas registradas este día.
+          {totals ? "Sin ventas registradas." : "Sin ventas registradas este día."}
         </div>
       ) : (
         <ol className="space-y-3">

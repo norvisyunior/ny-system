@@ -145,7 +145,7 @@ function main(): void {
   }));
 
   setDemoFlag(db, true);
-  updateSettings(db, { businessName: "NY SYSTEM (DEMO)" });
+  updateSettings(db, { businessName: "NYORA (DEMO)" });
 
   console.log("[demo] Datos DEMO cargados con éxito:");
   console.log(`  proveedor #${sup.id}, materiales: Harina de trigo / Picadillo de cerdo / Empaque de cartón`);

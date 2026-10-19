@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { CalendarDays, Clock } from "lucide-react";
+import { CalendarDays, Clock, LayoutGrid } from "lucide-react";
 import { api } from "../../api/client";
 import { SelectedDateProvider, useSelectedDate } from "../../app/SelectedDateContext";
 import { fmtLongDate, todayISO } from "../ui";
@@ -30,21 +30,22 @@ function useNow(): Date {
 function Header({ settings }: { settings: AppSettings | null }) {
   const location = useLocation();
   const isDashboard = location.pathname === "/dashboard";
-  const { date, setDate } = useSelectedDate();
+  const { date, setDate, viewMode, setViewMode } = useSelectedDate();
   const now = useNow();
   const today = todayISO();
 
   const time = now.toLocaleTimeString("es-ES", { hour: "numeric", minute: "2-digit", hour12: true });
   const subtitleDate = isDashboard ? date : today;
-  const initial = (settings?.businessName ?? "N").trim().charAt(0).toUpperCase();
+  const subtitle =
+    isDashboard && viewMode === "totals"
+      ? "Resumen histórico de todo el negocio."
+      : `Aquí tienes un resumen del estado de tu negocio hoy, ${fmtLongDate(subtitleDate)}.`;
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-3.5">
       <div className="min-w-0">
         <h1 className="text-xl font-bold text-slate-900">{greeting()}</h1>
-        <p className="truncate text-sm text-slate-500">
-          Aquí tienes un resumen del estado de tu negocio hoy, {fmtLongDate(subtitleDate)}.
-        </p>
+        <p className="truncate text-sm text-slate-500">{subtitle}</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2.5">
@@ -55,6 +56,37 @@ function Header({ settings }: { settings: AppSettings | null }) {
         )}
 
         {isDashboard && (
+          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setViewMode("day")}
+              className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                viewMode === "day"
+                  ? "bg-emerald-700 text-white shadow-sm"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Ver datos del día seleccionado"
+            >
+              <CalendarDays size={13} aria-hidden />
+              Día
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("totals")}
+              className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                viewMode === "totals"
+                  ? "bg-emerald-700 text-white shadow-sm"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Ver acumulado histórico del negocio"
+            >
+              <LayoutGrid size={13} aria-hidden />
+              Totales
+            </button>
+          </div>
+        )}
+
+        {isDashboard && viewMode === "day" && (
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
             <CalendarDays size={15} className="text-slate-400" aria-hidden />
             <input
@@ -87,15 +119,6 @@ function Header({ settings }: { settings: AppSettings | null }) {
           <Clock size={15} className="text-slate-400" aria-hidden />
           {time}
         </div>
-
-        <span className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white py-1.5 pl-1.5 pr-3 shadow-sm">
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-700 text-xs font-bold text-white">
-            {initial}
-          </span>
-          <span className="max-w-[10rem] truncate text-sm font-semibold text-slate-700">
-            {settings?.businessName || "Administrador"}
-          </span>
-        </span>
       </div>
     </header>
   );

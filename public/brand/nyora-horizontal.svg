@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 128" role="img" aria-label="NYORA — Gestión Integral">
+  <defs>
+    <linearGradient id="nyora-gold" x1="32" y1="28" x2="96" y2="100" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2D89A"/>
+      <stop offset="0.48" stop-color="#D8B56D"/>
+      <stop offset="1" stop-color="#A77B36"/>
+    </linearGradient>
+  </defs>
+  <rect x="2.5" y="2.5" width="123" height="123" rx="28" fill="#071B1D" stroke="url(#nyora-gold)" stroke-width="5"/>
+  <g fill="url(#nyora-gold)">
+    <path d="M28 94V34h13l17 27V34h13v60H58L41 67v27H28z"/>
+    <path d="M66 34h13l11 17 11-17h13L94 62v32H80V62L66 34z"/>
+    <path d="M30 90c15 9 44 11 74-12-20 15-50 19-74 12z"/>
+  </g>
+  <text x="152" y="68" fill="#FFFFFF" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="52" font-weight="600" letter-spacing="0.14em">NYORA</text>
+  <text x="154" y="100" fill="#CBD5D7" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="22" font-weight="400" letter-spacing="0.08em">Gestión Integral</text>
+</svg>

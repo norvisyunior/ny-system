@@ -169,6 +169,8 @@ export interface LowYieldRow {
 
 export interface DashboardData {
   date: string;
+  /** "day" = fecha seleccionada; "totals" = acumulado histórico. */
+  mode?: "day" | "totals";
   salesMicro: number;
   cogsMicro: number;
   grossMicro: number;
@@ -193,6 +195,15 @@ export interface DashboardData {
   plan: ProductionPlanStatus | null;
   recentProductions: RecentProductionRow[];
   lowYields: LowYieldRow[];
+  /** Utilidad neta histórica de todo el negocio. */
+  allTimeNetMicro?: number;
+  /** Presente solo en mode "totals". */
+  productionTotals?: {
+    massesMicro: number;
+    packagesMicro: number;
+    elaborationsCount: number;
+    outputsCount: number;
+  };
 }
 
 /** Paleta de marca para gráficos. */

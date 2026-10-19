@@ -11,7 +11,7 @@ export interface AppSettings {
 }
 
 const DEFAULTS: AppSettings = {
-  businessName: "NY SYSTEM",
+  businessName: "NYORA",
   currency: "CUP",
   demoMode: false,
 };

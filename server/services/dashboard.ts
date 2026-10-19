@@ -195,6 +195,8 @@ export interface LowYieldRow {
 
 export interface DashboardData {
   date: string;
+  /** "day" = fecha seleccionada; "totals" = acumulado histórico del negocio. */
+  mode?: "day" | "totals";
   salesMicro: number;
   cogsMicro: number;
   grossMicro: number;
@@ -219,6 +221,15 @@ export interface DashboardData {
   plan: ProductionPlanStatus | null;
   recentProductions: RecentProductionRow[];
   lowYields: LowYieldRow[];
+  /** Utilidad neta histórica de todo el negocio (ventas − costos − gastos). */
+  allTimeNetMicro: number;
+  /** Presente solo en mode "totals": agregados históricos de producción. */
+  productionTotals?: {
+    massesMicro: number;
+    packagesMicro: number;
+    elaborationsCount: number;
+    outputsCount: number;
+  };
 }
 
 const num = (v: unknown): number => Math.trunc(Number(v ?? 0));
@@ -515,8 +526,8 @@ function periodSummary(db: DBOrTx, from: string, to: string): PeriodSummary {
   };
 }
 
-function topProducts(db: DBOrTx, endDate: string, limit = 20): TopProductRow[] {
-  const from = shiftDays(endDate, -29);
+function topProducts(db: DBOrTx, endDate: string, limit = 20, from?: string): TopProductRow[] {
+  const rangeFrom = from ?? shiftDays(endDate, -29);
   const rows = db
     .select({
       productId: finishedProducts.id,
@@ -528,8 +539,8 @@ function topProducts(db: DBOrTx, endDate: string, limit = 20): TopProductRow[] {
     })
     .from(saleItems)
     .innerJoin(sales, eq(saleItems.saleId, sales.id))
-    .innerJoin(finishedProducts, eq(saleItems.productId, finishedProducts.id))
-    .where(and(eq(sales.status, "confirmada"), gte(sales.saleDate, from), lte(sales.saleDate, endDate)))
+    .innerJoin(finishedProducts, eq(finishedProducts.id, saleItems.productId))
+    .where(and(eq(sales.status, "confirmada"), gte(sales.saleDate, rangeFrom), lte(sales.saleDate, endDate)))
     .groupBy(finishedProducts.id, finishedProducts.name, finishedProducts.saleUnitId)
     .orderBy(sql`SUM(${saleItems.lineTotalMicro}) DESC`)
     .limit(limit)
@@ -1003,6 +1014,7 @@ export function getDashboard(db: DBOrTx, date = todayISO()): DashboardData {
 
   return {
     date,
+    mode: "day",
     salesMicro,
     cogsMicro,
     grossMicro,
@@ -1021,11 +1033,145 @@ export function getDashboard(db: DBOrTx, date = todayISO()): DashboardData {
     week: periodSummary(db, shiftDays(date, -6), date),
     month: periodSummary(db, `${date.slice(0, 8)}01`, date),
     topProducts: topProducts(db, date),
-    daily: dailySeries(db, date),
+    daily: dailySeries(db, date, 15),
     dayProductSales: dayProductSales(db, date),
     inventory: inventorySummary(db, alerts, stockRows),
     plan: productionPlanStatus(db, date),
     recentProductions: recentProductions(db, date),
     lowYields: lowYields(db, date),
+    allTimeNetMicro: allTimeNet(db),
+  };
+}
+
+const ALL_TIME_FROM = "1970-01-01";
+
+function allTimeNet(db: DBOrTx): number {
+  const s = db
+    .select({
+      total: sql<number>`COALESCE(SUM(${sales.totalMicro}), 0)`,
+      cogs: sql<number>`COALESCE(SUM(${sales.totalCostMicro}), 0)`,
+    })
+    .from(sales)
+    .where(eq(sales.status, "confirmada"))
+    .get();
+  const e = db
+    .select({ total: sql<number>`COALESCE(SUM(${expenses.amountMicro}), 0)` })
+    .from(expenses)
+    .where(eq(expenses.status, "confirmada"))
+    .get();
+  return num(s?.total) - num(s?.cogs) - num(e?.total);
+}
+
+/** Acumulados históricos de todo el negocio (sin filtro de día). */
+export function getDashboardTotals(db: DBOrTx): DashboardData {
+  const today = todayISO();
+  const summary = periodSummary(db, ALL_TIME_FROM, today);
+
+  const prodAgg = db
+    .select({
+      cnt: sql<number>`COUNT(*)`,
+      yieldSum: sql<number>`COALESCE(SUM(${productionBatches.realYieldMicro}), 0)`,
+    })
+    .from(productionBatches)
+    .where(
+      and(
+        eq(productionBatches.status, "confirmada"),
+        gte(productionBatches.productionDate, ALL_TIME_FROM),
+        lte(productionBatches.productionDate, today),
+      ),
+    )
+    .get();
+
+  const outAgg = db
+    .select({
+      cnt: sql<number>`COUNT(*)`,
+      qtySum: sql<number>`COALESCE(SUM(${transformationOutputs.qtyMicro}), 0)`,
+    })
+    .from(transformationOutputs)
+    .innerJoin(transformations, eq(transformations.id, transformationOutputs.transformationId))
+    .where(
+      and(
+        eq(transformations.status, "confirmada"),
+        gte(transformations.transformDate, ALL_TIME_FROM),
+        lte(transformations.transformDate, today),
+      ),
+    )
+    .get();
+
+  const { alerts, stockValueMicro, stockRows } = buildAlerts(db);
+  const closingDiffCount = num(
+    db
+      .select({ n: sql<number>`COUNT(*)` })
+      .from(closingCountLines)
+      .where(sql`${closingCountLines.diffMicro} != 0`)
+      .get()?.n,
+  );
+
+  // Ventas por producto históricas (para dona y ranking)
+  const productRows = db
+    .select({
+      productId: finishedProducts.id,
+      name: finishedProducts.name,
+      unitId: finishedProducts.saleUnitId,
+      qty: sql<number>`COALESCE(SUM(${saleItems.qtyMicro}), 0)`,
+      total: sql<number>`COALESCE(SUM(${saleItems.lineTotalMicro}), 0)`,
+      cost: sql<number>`COALESCE(SUM(${saleItems.lineCostMicro}), 0)`,
+    })
+    .from(saleItems)
+    .innerJoin(sales, eq(sales.id, saleItems.saleId))
+    .innerJoin(finishedProducts, eq(finishedProducts.id, saleItems.productId))
+    .where(and(eq(sales.status, "confirmada"), gte(sales.saleDate, ALL_TIME_FROM)))
+    .groupBy(finishedProducts.id, finishedProducts.name, finishedProducts.saleUnitId)
+    .orderBy(sql`SUM(${saleItems.lineTotalMicro}) DESC`)
+    .all();
+
+  const dayProductSales: DayProductSalesRow[] = productRows.map((r) => {
+    const totalMicro = num(r.total);
+    const costMicro = num(r.cost);
+    return {
+      productId: r.productId,
+      name: r.name,
+      unitId: r.unitId,
+      qtyMicro: num(r.qty),
+      totalMicro,
+      costMicro,
+      marginMicro: totalMicro - costMicro,
+    };
+  });
+
+  return {
+    date: today,
+    mode: "totals",
+    salesMicro: summary.salesMicro,
+    cogsMicro: summary.cogsMicro,
+    grossMicro: summary.grossMicro,
+    expensesMicro: summary.expensesMicro,
+    netMicro: summary.netMicro,
+    salesCount: summary.salesCount,
+    stockValueMicro,
+    alerts,
+    closingDiffCount,
+    pendingClosings: pendingClosings(db),
+    daySales: [],
+    dayExpenses: [],
+    dayProductions: [],
+    dayOutputs: [],
+    dayPurchases: [],
+    week: periodSummary(db, shiftDays(today, -6), today),
+    month: periodSummary(db, `${today.slice(0, 8)}01`, today),
+    topProducts: topProducts(db, today, 20, ALL_TIME_FROM),
+    daily: dailySeries(db, today, 15),
+    dayProductSales,
+    inventory: inventorySummary(db, alerts, stockRows),
+    plan: productionPlanStatus(db, today),
+    recentProductions: recentProductions(db, today, 20),
+    lowYields: [],
+    allTimeNetMicro: summary.netMicro,
+    productionTotals: {
+      massesMicro: num(prodAgg?.yieldSum),
+      packagesMicro: num(outAgg?.qtySum),
+      elaborationsCount: num(prodAgg?.cnt),
+      outputsCount: num(outAgg?.cnt),
+    },
   };
 }

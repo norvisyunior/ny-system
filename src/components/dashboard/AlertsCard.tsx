@@ -35,7 +35,7 @@ const ITEM_TYPE_PATH: Record<string, string> = {
   product: "/inventario/productos",
 };
 
-/** Ítems de alerta combinados (stock, plan, rendimientos, cierres). */
+/** Ítems de alerta: solo stock del inventario (agotado / bajo). */
 export function buildAlertItems(data: DashboardData): AlertItem[] {
   const items: AlertItem[] = [];
 
@@ -46,53 +46,6 @@ export function buildAlertItems(data: DashboardData): AlertItem[] {
       title: `${a.level === "agotado" ? "Stock agotado" : "Stock bajo"}: ${a.name}`,
       detail: `Quedan ${fmtQty(a.stockMicro, a.unitId)} (mínimo: ${fmtQty(a.minStockMicro, a.unitId)})`,
       to: ITEM_TYPE_PATH[a.itemType] ?? "/inventario/materias-primas",
-    });
-  }
-
-  if (data.plan && data.plan.status === "bloqueado" && data.plan.missingMaterials.length > 0) {
-    const first = data.plan.missingMaterials[0];
-    items.push({
-      id: `plan:${data.plan.id}`,
-      tone: "critico",
-      title: `Plan #${String(data.plan.number).padStart(5, "0")} bloqueado por falta de materiales`,
-      detail: `Falta ${fmtQty(first.missingMicro, first.unitId)} de ${first.name}${
-        data.plan.missingMaterials.length > 1
-          ? ` y ${data.plan.missingMaterials.length - 1} material(es) más`
-          : ""
-      }`,
-      to: "/produccion/planes",
-    });
-  }
-
-  for (const y of data.lowYields) {
-    items.push({
-      id: `yield:${y.kind}:${y.number}`,
-      tone: "advertencia",
-      title: "Producción por debajo de lo esperado",
-      detail: `${y.title}: ${fmtQty(y.actualMicro, y.unitId)} de ${fmtQty(y.expectedMicro, y.unitId)} (${y.gapPct.toFixed(1)}%)`,
-      to: y.kind === "terminacion" ? "/operaciones/transformacion" : "/produccion/rendimientos",
-    });
-  }
-
-  if (data.pendingClosings.length > 0) {
-    items.push({
-      id: "closings:pending",
-      tone: "info",
-      title: `${data.pendingClosings.length} día(s) sin cierre diario`,
-      detail: `Pendientes: ${data.pendingClosings.slice(0, 4).join(", ")}${
-        data.pendingClosings.length > 4 ? "…" : ""
-      }`,
-      to: "/operaciones/cierre",
-    });
-  }
-
-  if (data.closingDiffCount > 0) {
-    items.push({
-      id: "closings:diff",
-      tone: "info",
-      title: `${data.closingDiffCount} diferencia(s) de inventario en cierres`,
-      detail: "Revisa las diferencias registradas al cerrar días.",
-      to: "/operaciones/cierre",
     });
   }
 
@@ -123,7 +76,7 @@ export function AlertsCard({ data }: { data: DashboardData }) {
 
       {items.length === 0 ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          Todo en orden: sin alertas de stock, producción ni cierres.
+          Todo en orden: sin alertas de stock.
         </div>
       ) : (
         <ul className="space-y-2">

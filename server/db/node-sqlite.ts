@@ -40,6 +40,28 @@ export interface NodeSqliteRunResult {
   lastInsertRowid: number | bigint;
 }
 
+/**
+ * node:sqlite lanza ERR_OUT_OF_RANGE al leer INTEGERs fuera del rango seguro
+ * de Number (p. ej. SUM(qty_micro * cost_micro) en escala micro²). Se leen
+ * como BigInt y se normalizan aquí a number; la pérdida de precisión a esa
+ * escala es despreciable (±unidades de micro² tras dividir por 1e6).
+ */
+function toJsValue(v: unknown): unknown {
+  return typeof v === "bigint" ? Number(v) : v;
+}
+
+function normalizeRow<T>(row: T): T {
+  if (Array.isArray(row)) return row.map(toJsValue) as unknown as T;
+  if (row && typeof row === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+      out[k] = toJsValue(v);
+    }
+    return out as T;
+  }
+  return row;
+}
+
 export interface NodeSqliteSessionOptions {
   logger?: Logger;
   cache?: Cache;
@@ -82,6 +104,7 @@ export class NodeSqliteSession<
     cacheConfig?: unknown,
   ): PreparedQuery<T> {
     const stmt = this.client.prepare(query.sql);
+    stmt.setReadBigInts(true);
     return new PreparedQuery(
       stmt,
       query,
@@ -216,7 +239,12 @@ export class PreparedQuery<
   run(placeholderValues?: Record<string, unknown>): NodeSqliteRunResult {
     const params = fillPlaceholders(this.query.params, placeholderValues ?? {});
     this.logger.logQuery(this.query.sql, params);
-    return this.stmt.run(...(params as never[])) as NodeSqliteRunResult;
+    const result = this.stmt.run(...(params as never[])) as NodeSqliteRunResult;
+    return {
+      changes: Number(result.changes),
+      lastInsertRowid:
+        typeof result.lastInsertRowid === "bigint" ? Number(result.lastInsertRowid) : result.lastInsertRowid,
+    };
   }
 
   all(placeholderValues?: Record<string, unknown>): T["all"] {
@@ -225,7 +253,8 @@ export class PreparedQuery<
     if (!fields && !customResultMapper) {
       const params = fillPlaceholders(query.params, placeholderValues ?? {});
       logger.logQuery(query.sql, params);
-      return stmt.all(...(params as never[])) as T["all"];
+      const rows = stmt.all(...(params as never[])) as unknown[];
+      return rows.map((row) => normalizeRow(row)) as T["all"];
     }
     const rows = this.values(placeholderValues);
     if (customResultMapper) {
@@ -241,7 +270,8 @@ export class PreparedQuery<
     this.logger.logQuery(this.query.sql, params);
     const { fields, stmt, joinsNotNullableMap, customResultMapper } = this;
     if (!fields && !customResultMapper) {
-      return stmt.get(...(params as never[])) as T["get"];
+      const row = stmt.get(...(params as never[]));
+      return (row === undefined ? undefined : normalizeRow(row)) as T["get"];
     }
     const row = this.getRowArray(params);
     if (row === undefined) {
@@ -268,7 +298,8 @@ export class PreparedQuery<
     this.stmt.setReturnArrays(true);
     try {
       const row = this.stmt.get(...(params as never[]));
-      return (row as unknown[] | undefined) ?? undefined;
+      if (row === undefined) return undefined;
+      return (row as unknown[]).map(toJsValue);
     } finally {
       this.stmt.setReturnArrays(false);
     }
@@ -277,7 +308,8 @@ export class PreparedQuery<
   private getRowsArrays(params: unknown[]): unknown[][] {
     this.stmt.setReturnArrays(true);
     try {
-      return this.stmt.all(...(params as never[])) as unknown as unknown[][];
+      const rows = this.stmt.all(...(params as never[])) as unknown[][];
+      return rows.map((row) => row.map(toJsValue));
     } finally {
       this.stmt.setReturnArrays(false);
     }

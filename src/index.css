@@ -1,10 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  /* Paleta de marca */
-  --ny-brand: #0f2925;
-  --ny-brand-soft: #173f38;
+  /* Paleta de marca NYORA */
+  --ny-brand: #071b1d;
+  --ny-brand-soft: #0b2224;
   --ny-brand-accent: #0f766e;
+  --ny-gold: #d8b56d;
+  --ny-gold-light: #f2d89a;
+  --ny-gold-dark: #a77b36;
+  --ny-on-brand: #ffffff;
+  --ny-on-brand-muted: #cbd5d7;
   --ny-sales: #059669;
   --ny-costs: #2563eb;
   --ny-gross: #7c3aed;
@@ -13,14 +18,15 @@
   --ny-warn: #eab308;
   --ny-danger: #dc2626;
   --ny-bg: #f3f6fa;
+  --ny-surface: #ffffff;
   --ny-border: #e2e8f0;
   --ny-text: #172b4d;
   --ny-muted: #64748b;
   --ny-faint: #94a3b8;
 
-  --ny-sidebar: #0f2925;
-  --ny-sidebar-hover: #173f38;
-  --ny-sidebar-active: #0f7669;
+  --ny-sidebar: #071b1d;
+  --ny-sidebar-hover: #0b2224;
+  --ny-sidebar-active: #0f766e;
 }
 
 html,
@@ -32,6 +38,7 @@ body,
 body {
   margin: 0;
   font-family:
+    "Inter",
     "Segoe UI",
     system-ui,
     -apple-system,
@@ -250,7 +257,7 @@ body {
 
 /* Scrollbar del sidebar (fondo oscuro) */
 .sidebar-scroll {
-  scrollbar-color: #2f5a52 rgb(15 41 37 / 0.4);
+  scrollbar-color: #2a4a48 rgb(7 27 29 / 0.4);
   overscroll-behavior: contain;
 }
 .sidebar-scroll::-webkit-scrollbar {
@@ -260,13 +267,13 @@ body {
   background: rgb(255 255 255 / 0.03);
 }
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  background-color: #2f5a52;
+  background-color: #2a4a48;
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: #3f7a6f;
+  background-color: #3d6b66;
 }
 
 /* Contenedores con scroll interno: scrollbar ligera sobre fondo claro */

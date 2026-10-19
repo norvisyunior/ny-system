@@ -1,9 +1,13 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { todayISO } from "../components/ui";
 
+export type DashboardViewMode = "day" | "totals";
+
 interface SelectedDateValue {
   date: string;
   setDate: (date: string) => void;
+  viewMode: DashboardViewMode;
+  setViewMode: (mode: DashboardViewMode) => void;
   notificationCount: number;
   setNotificationCount: (n: number) => void;
 }
@@ -11,17 +15,19 @@ interface SelectedDateValue {
 const SelectedDateContext = createContext<SelectedDateValue | null>(null);
 
 /**
- * Fecha global seleccionada en el header (visible solo en /dashboard).
- * El DashboardPage la consume para pedir sus datos y publica aquí
- * el conteo de alertas para la campana del header.
+ * Fecha global y modo de vista del dashboard (visible solo en /dashboard).
+ * - day: KPIs del día seleccionado en el calendario del header.
+ * - totals: acumulado histórico de todo el negocio.
+ * El DashboardPage consume la fecha/modo y publica el conteo de alertas.
  */
 export function SelectedDateProvider({ children }: { children: ReactNode }) {
   const [date, setDate] = useState(todayISO);
+  const [viewMode, setViewMode] = useState<DashboardViewMode>("day");
   const [notificationCount, setNotificationCount] = useState(0);
 
   const value = useMemo(
-    () => ({ date, setDate, notificationCount, setNotificationCount }),
-    [date, notificationCount],
+    () => ({ date, setDate, viewMode, setViewMode, notificationCount, setNotificationCount }),
+    [date, viewMode, notificationCount],
   );
 
   return <SelectedDateContext.Provider value={value}>{children}</SelectedDateContext.Provider>;

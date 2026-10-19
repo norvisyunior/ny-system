@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { NAV } from "../../app/nav";
+import { BrandLogo } from "../brand/BrandLogo";
 
 const COLLAPSED_KEY = "ny.sidebar.collapsed";
 
@@ -30,26 +31,18 @@ export function Sidebar() {
       style={{ background: "var(--ny-sidebar)" }}
     >
       <div className="flex items-center justify-between gap-2 px-4 py-4">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <div
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-400/40 text-sm font-bold tracking-tight text-emerald-300"
-            style={{ background: "var(--ny-sidebar-hover)" }}
-            aria-hidden
-          >
-            NY
+        {collapsed ? (
+          <div className="mx-auto">
+            <BrandLogo variant="symbol" size="md" theme="dark" />
           </div>
-          {!collapsed && (
-            <div className="min-w-0">
-              <div className="truncate text-sm font-bold tracking-wide text-white">NY SYSTEM</div>
-              <div className="truncate text-[11px] text-emerald-200/60">Gestión integral</div>
-            </div>
-          )}
-        </div>
+        ) : (
+          <BrandLogo variant="horizontal" size="sm" theme="dark" showSubtitle />
+        )}
         <button
           type="button"
           title={collapsed ? "Expandir menú" : "Contraer menú"}
           aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
-          className="rounded-md p-1 text-emerald-200/60 transition-colors hover:bg-white/10 hover:text-white"
+          className="rounded-md p-1 text-[#CBD5D7]/60 transition-colors hover:bg-white/10 hover:text-white"
           onClick={() => setCollapsed((v) => !v)}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
@@ -60,7 +53,10 @@ export function Sidebar() {
         {NAV.map((group) => (
           <div key={group.label || "main"} className="mt-2">
             {group.label && !collapsed && (
-              <div className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-wider text-emerald-200/50">
+              <div
+                className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-wider"
+                style={{ color: "rgb(216 181 109 / 0.55)" }}
+              >
                 {group.label}
               </div>
             )}
@@ -75,20 +71,26 @@ export function Sidebar() {
                     "group flex items-center rounded-lg px-3 py-2 text-sm transition-colors",
                     collapsed ? "justify-center gap-0" : "gap-3",
                     isActive
-                      ? "bg-emerald-600/90 font-semibold text-white shadow-sm"
+                      ? "bg-[var(--ny-sidebar-active)] font-semibold text-white shadow-sm"
                       : "hover:bg-white/5 hover:text-white",
                   ].join(" ")
                 }
               >
-                <item.icon
-                  size={17}
-                  className={
-                    collapsed
-                      ? "shrink-0"
-                      : "shrink-0 text-emerald-200/70 transition-colors group-hover:text-emerald-200"
-                  }
-                />
-                {!collapsed && <span className="truncate">{item.label}</span>}
+                {({ isActive }) => (
+                  <>
+                    <item.icon
+                      size={17}
+                      className={
+                        collapsed
+                          ? "shrink-0"
+                          : isActive
+                            ? "shrink-0 text-[#F2D89A]"
+                            : "shrink-0 text-[#CBD5D7]/70 transition-colors group-hover:text-[#F2D89A]"
+                      }
+                    />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </>
+                )}
               </NavLink>
             ))}
           </div>
@@ -99,13 +101,13 @@ export function Sidebar() {
         className={`border-t border-white/10 px-4 py-3 text-[11px] leading-tight ${
           collapsed ? "px-2 text-center" : ""
         }`}
-        style={{ color: "rgba(167, 243, 208, 0.45)" }}
+        style={{ color: "rgb(203 213 215 / 0.45)" }}
       >
         {collapsed ? (
           <span className="font-semibold">v0.1.0</span>
         ) : (
           <>
-            NY SYSTEM v0.1.0
+            NYORA v0.1.0
             <br />© Norvis Yunior
           </>
         )}

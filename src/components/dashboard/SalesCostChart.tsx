@@ -10,6 +10,7 @@ import {
 } from "recharts";
 import { fmtMoney } from "../ui";
 import { CHART_COLORS, type DailyPoint } from "./types";
+import { ChartColumn } from "lucide-react";
 
 function fmtShortDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -42,9 +43,12 @@ export function SalesCostChart({ data }: { data: DailyPoint[] }) {
   return (
     <section className="card flex min-h-[19rem] min-w-0 flex-col p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-bold text-slate-800">
+        <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+            <ChartColumn size={16} />
+          </span>
           Ventas vs. Costos{" "}
-          <span className="font-normal text-slate-400">(últimos 7 días)</span>
+          <span className="font-normal text-slate-400">(últimos 15 días)</span>
         </h2>
         <ul className="flex items-center gap-3 text-xs text-slate-500" aria-hidden>
           <li className="flex items-center gap-1.5">
@@ -64,7 +68,7 @@ export function SalesCostChart({ data }: { data: DailyPoint[] }) {
 
       {!hasData ? (
         <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-4 text-center text-sm text-slate-400">
-          Sin ventas ni costos registrados en los últimos 7 días.
+          Sin ventas ni costos registrados en el período.
         </div>
       ) : (
         <div className="min-h-0 flex-1" style={{ minHeight: "14rem" }}>

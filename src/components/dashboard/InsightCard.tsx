@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, Target } from "lucide-react";
-import { fmtLongDate, fmtPct } from "../ui";
+import { fmtLongDate, fmtMoney, fmtPct } from "../ui";
 import type { DashboardData } from "./types";
 
 export function InsightCard({ data }: { data: DashboardData }) {
@@ -47,13 +47,12 @@ export function InsightCard({ data }: { data: DashboardData }) {
     );
   }
 
+  const allTimeNet = data.allTimeNetMicro ?? data.netMicro;
+  const inventoryValue = data.inventory.totalValueMicro;
+  const totalMoney = allTimeNet + inventoryValue;
+
   return (
-    <section className="card relative overflow-hidden p-4">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-[0.07]"
-        style={{ background: "var(--ny-brand-accent)" }}
-      />
+    <section className="card p-4">
       <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
           <Target size={16} />
@@ -64,6 +63,30 @@ export function InsightCard({ data }: { data: DashboardData }) {
       <p className="text-[13px] leading-relaxed text-slate-600">
         <strong className="text-slate-800">{headline}</strong> {detail}
       </p>
+
+      <div className="mt-4 border-t border-slate-100 pt-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+          Dinero total del negocio
+        </div>
+        <div className="mt-2 space-y-1.5">
+          <div className="flex items-center justify-between gap-3 text-[13px]">
+            <span className="text-slate-500">Ganancias acumuladas</span>
+            <span className="font-semibold tabular-nums text-emerald-700">
+              {fmtMoney(allTimeNet)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3 text-[13px]">
+            <span className="text-slate-500">Inventario (PEPS)</span>
+            <span className="font-semibold tabular-nums text-slate-700">
+              {fmtMoney(inventoryValue)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-1.5 text-sm font-bold text-slate-800">
+            <span>Total</span>
+            <span className="tabular-nums text-emerald-700">{fmtMoney(totalMoney)}</span>
+          </div>
+        </div>
+      </div>
 
       <div className="mt-4 flex justify-end">
         <Link

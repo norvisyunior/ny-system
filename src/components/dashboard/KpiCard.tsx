@@ -37,22 +37,25 @@ export function KpiCard({
   const t = TONES[tone];
   return (
     <div className="card flex min-w-0 flex-col gap-2 p-4">
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-3">
         <span
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
           style={{ background: t.iconBg, color: t.iconColor }}
           aria-hidden
         >
-          <Icon size={19} />
+          <Icon size={18} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold text-slate-600">{label}</div>
-          <div className="truncate text-xl font-bold tabular-nums 2xl:text-2xl" style={{ color: t.valueColor }}>
-            {value}
-          </div>
         </div>
       </div>
-      <div className="flex min-h-[2.4rem] flex-wrap items-end justify-between gap-x-3 gap-y-1 border-t border-slate-100 pt-2">
+      <div
+        className="whitespace-nowrap text-xl font-bold leading-tight tabular-nums 2xl:text-2xl"
+        style={{ color: t.valueColor }}
+      >
+        {value}
+      </div>
+      <div className="flex min-h-[1.6rem] flex-wrap items-end justify-between gap-x-3 gap-y-1 border-t border-slate-100 pt-2">
         <span className="text-xs text-slate-400">{sub}</span>
         {delta && (
           <span

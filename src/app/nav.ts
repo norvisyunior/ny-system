@@ -1,16 +1,15 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
-  Boxes,
   CalendarCheck,
   ChartColumn,
   ClipboardList,
+  Cookie,
   DollarSign,
   Factory,
   Gauge,
-  LayoutDashboard,
-  Layers,
-  Package,
+  Home,
+  PackageCheck,
   Percent,
   Receipt,
   Repeat,
@@ -20,6 +19,7 @@ import {
   TrendingUp,
   Truck,
   Wallet,
+  Wheat,
 } from "lucide-react";
 
 export interface NavItem {
@@ -34,12 +34,12 @@ export interface NavGroup {
 }
 
 export const NAV: NavGroup[] = [
-  { label: "", items: [{ label: "Dashboard", path: "/dashboard", icon: LayoutDashboard }] },
+  { label: "", items: [{ label: "Dashboard", path: "/dashboard", icon: Home }] },
   {
     label: "Operaciones",
     items: [
       { label: "Compras", path: "/operaciones/compras", icon: ShoppingCart },
-      { label: "Transformación", path: "/operaciones/transformacion", icon: Repeat },
+      { label: "Empaquetado", path: "/operaciones/transformacion", icon: Repeat },
       { label: "Ventas", path: "/operaciones/ventas", icon: Receipt },
       { label: "Cierre diario", path: "/operaciones/cierre", icon: CalendarCheck },
     ],
@@ -47,9 +47,9 @@ export const NAV: NavGroup[] = [
   {
     label: "Inventario",
     items: [
-      { label: "Materias primas", path: "/inventario/materias-primas", icon: Package },
-      { label: "Masas", path: "/inventario/masas", icon: Layers },
-      { label: "Productos terminados", path: "/inventario/productos", icon: Boxes },
+      { label: "Materias primas", path: "/inventario/materias-primas", icon: Wheat },
+      { label: "Masas", path: "/inventario/masas", icon: Cookie },
+      { label: "Productos terminados", path: "/inventario/productos", icon: PackageCheck },
     ],
   },
   {

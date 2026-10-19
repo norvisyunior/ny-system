@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
-import { ArrowRight, Boxes, Layers, Package } from "lucide-react";
+import { ArrowRight, Boxes, Cookie, PackageCheck, Wheat } from "lucide-react";
 import { fmtMoney } from "../ui";
 import type { DashboardData, InventoryTypeSummary } from "./types";
 
@@ -64,9 +64,9 @@ export function InventoryCard({ data }: { data: DashboardData }) {
         </p>
       </div>
 
-      <div className="grid flex-1 gap-3 @md:grid-cols-3">
+      <div className="grid flex-1 gap-3 grid-cols-3">
         <TypeTile
-          icon={Package}
+          icon={Wheat}
           iconClass="bg-emerald-50 text-emerald-600"
           title="Materias primas"
           summary={inv.raw}
@@ -74,7 +74,7 @@ export function InventoryCard({ data }: { data: DashboardData }) {
           extra={`${inv.raw.stockedCount} con existencias`}
         />
         <TypeTile
-          icon={Layers}
+          icon={Cookie}
           iconClass="bg-sky-50 text-sky-600"
           title="Masas"
           summary={inv.mass}
@@ -82,7 +82,7 @@ export function InventoryCard({ data }: { data: DashboardData }) {
           extra={`${inv.mass.stockedCount} con existencias`}
         />
         <TypeTile
-          icon={Boxes}
+          icon={PackageCheck}
           iconClass="bg-amber-50 text-amber-600"
           title="Productos terminados"
           summary={inv.product}
