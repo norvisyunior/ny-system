@@ -81,7 +81,7 @@ export function ReportsPage() {
   };
 
   return (
-    <div>
+    <div className="print-page">
       <PageHeader
         title="Reportes"
         subtitle="Inventario, productos terminados, compras, producción, ventas, rentabilidad y auditoría · PDF con Imprimir"
@@ -139,7 +139,7 @@ export function ReportsPage() {
       </div>
 
       {report && (
-        <div className="card overflow-hidden">
+        <div className="card overflow-hidden print-area">
           <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
             {report.title}
           </div>

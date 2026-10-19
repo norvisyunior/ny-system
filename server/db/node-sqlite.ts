@@ -299,7 +299,7 @@ export class PreparedQuery<
     try {
       const row = this.stmt.get(...(params as never[]));
       if (row === undefined) return undefined;
-      return (row as unknown[]).map(toJsValue);
+      return (row as unknown as unknown[]).map(toJsValue);
     } finally {
       this.stmt.setReturnArrays(false);
     }
@@ -308,7 +308,7 @@ export class PreparedQuery<
   private getRowsArrays(params: unknown[]): unknown[][] {
     this.stmt.setReturnArrays(true);
     try {
-      const rows = this.stmt.all(...(params as never[])) as unknown[][];
+      const rows = this.stmt.all(...(params as never[])) as unknown as unknown[][];
       return rows.map((row) => row.map(toJsValue));
     } finally {
       this.stmt.setReturnArrays(false);

@@ -37,8 +37,7 @@ export function FinancialSummaryCard({ data }: { data: DashboardData }) {
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
             <CircleDollarSign size={16} />
           </span>
-          Resumen Financiero{" "}
-          <span className="font-normal text-slate-400">(hoy)</span>
+          Resumen Financiero
         </h2>
       </div>
 

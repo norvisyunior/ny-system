@@ -281,3 +281,55 @@ body {
   scrollbar-color: #cbd5e1 transparent;
   overscroll-behavior: contain;
 }
+
+/* ---------------- Impresion (Ctrl+P / Guardar como PDF) ----------------
+   Solo se imprime el area marcada con .print-area dentro de .print-page:
+   sin sidebar, sin header de la app, sin filtros, guias ni callouts. */
+@media print {
+  aside,
+  header {
+    display: none !important;
+  }
+
+  html,
+  body,
+  #root,
+  main {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  .print-page > *:not(.print-area) {
+    display: none !important;
+  }
+
+  .card {
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Tablas largas: sin scroll interno, el encabezado se repite por pagina */
+  .print-area,
+  .print-area * {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  @page {
+    margin: 1.5cm;
+  }
+}

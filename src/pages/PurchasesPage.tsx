@@ -7,6 +7,7 @@ import {
   ErrorAlert,
   Modal,
   SearchInput,
+  ScopeToggle,
   fmtDocNumber,
   fmtMoney,
   fmtQty,
@@ -102,13 +103,16 @@ export function PurchasesPage() {
   const [suppliersLoaded, setSuppliersLoaded] = useState(false);
   // Día visible: por defecto hoy; se cambia con el filtro de fecha.
   const [date, setDate] = useState(todayISO());
+  // Alcance: "day" = solo el día elegido (como el dashboard); "all" = todas las compras.
+  const [scope, setScope] = useState<"day" | "all">("day");
 
   const load = useCallback(() => {
+    const params = scope === "day" ? `?from=${date}&to=${date}` : "";
     api
-      .get<PurchaseRow[]>(`/purchases?from=${date}&to=${date}`)
+      .get<PurchaseRow[]>(`/purchases${params}`)
       .then(setRows)
       .catch((e: ApiError) => setError(e.message));
-  }, [date]);
+  }, [date, scope]);
   useEffect(load, [load]);
 
   const loadFormDeps = async () => {
@@ -272,14 +276,16 @@ export function PurchasesPage() {
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <SearchInput value={q} onChange={setQ} placeholder="Buscar por proveedor o número…" />
-            <div className="flex items-center gap-3">
-              <DayFilter date={date} onChange={setDate} />
+            <div className="flex flex-wrap items-center gap-3">
+              <ScopeToggle scope={scope} onChange={setScope} />
+              {scope === "day" && <DayFilter date={date} onChange={setDate} />}
               <span className="text-sm text-slate-500">{filtered.length} compra(s)</span>
             </div>
           </div>
           <p className="mb-3 text-xs text-slate-500">
-            Mostrando las compras del día seleccionado. Para ver otro día, cámbielo en el filtro de
-            la derecha.
+            {scope === "day"
+              ? "Mostrando las compras del día seleccionado. Para ver otro día, cámbielo en el filtro de la derecha."
+              : "Mostrando todas las compras registradas."}
           </p>
           <div className="card overflow-hidden">
             <table className="table-ny">

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
+import { CalendarDays, LayoutGrid } from "lucide-react";
 import { formatCUP, microToDecimalTrim } from "@shared/money";
 
 export function fmtMoney(micro: number): string {
@@ -212,6 +213,47 @@ export function DayFilter({
         }}
         className="rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
       />
+    </div>
+  );
+}
+
+export type DayScope = "day" | "all";
+
+/**
+ * Conmutador Día | Todos (mismo estilo del dashboard).
+ * "day" = solo el día elegido en DayFilter; "all" = todos los registros sin filtro de fecha.
+ */
+export function ScopeToggle({
+  scope,
+  onChange,
+}: {
+  scope: DayScope;
+  onChange: (v: DayScope) => void;
+}) {
+  const cls = (active: boolean) =>
+    `inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+      active ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"
+    }`;
+  return (
+    <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+      <button
+        type="button"
+        onClick={() => onChange("day")}
+        className={cls(scope === "day")}
+        title="Ver solo los datos del día seleccionado"
+      >
+        <CalendarDays size={13} aria-hidden />
+        Día
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("all")}
+        className={cls(scope === "all")}
+        title="Ver todos los datos registrados"
+      >
+        <LayoutGrid size={13} aria-hidden />
+        Todos
+      </button>
     </div>
   );
 }

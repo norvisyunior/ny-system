@@ -4,6 +4,7 @@ import { PageHeader } from "../components/PageHeader";
 import {
   Badge,
   DayFilter,
+  ScopeToggle,
   ErrorAlert,
   Modal,
   SearchInput,
@@ -166,13 +167,16 @@ export function TransformationsPage() {
 
   // Día visible: por defecto hoy; se cambia con el filtro de fecha.
   const [date, setDate] = useState(todayISO());
+  // Alcance: "day" = solo el día elegido; "all" = todos los registros.
+  const [scope, setScope] = useState<"day" | "all">("day");
 
   const load = useCallback(() => {
+    const params = scope === "day" ? `?from=${date}&to=${date}` : "";
     api
-      .get<TransformationRow[]>(`/transformations?from=${date}&to=${date}`)
+      .get<TransformationRow[]>(`/transformations${params}`)
       .then(setRows)
       .catch((e: ApiError) => setError(e.message));
-  }, [date]);
+  }, [date, scope]);
   useEffect(load, [load]);
   useEffect(() => {
     Promise.all([
@@ -350,14 +354,16 @@ export function TransformationsPage() {
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <SearchInput value={q} onChange={setQ} placeholder="Buscar por masa, receta o número…" />
-            <div className="flex items-center gap-3">
-              <DayFilter date={date} onChange={setDate} />
+            <div className="flex flex-wrap items-center gap-3">
+              <ScopeToggle scope={scope} onChange={setScope} />
+              {scope === "day" && <DayFilter date={date} onChange={setDate} />}
               <span className="text-sm text-slate-500">{filtered.length} transformación(es)</span>
             </div>
           </div>
           <p className="mb-3 text-xs text-slate-500">
-            Mostrando las terminaciones del día seleccionado. Para ver otro día, cámbielo en el
-            filtro de la derecha.
+            {scope === "day"
+              ? "Mostrando las terminaciones del día seleccionado. Para ver otro día, cámbielo en el filtro de la derecha."
+              : "Mostrando todas las terminaciones registradas."}
           </p>
           <div className="card overflow-hidden">
             <table className="table-ny">
