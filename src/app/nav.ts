@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
+  Calculator,
   CalendarCheck,
   ChartColumn,
   ClipboardList,
@@ -56,6 +57,7 @@ export const NAV: NavGroup[] = [
     label: "Producción",
     items: [
       { label: "Recetas", path: "/produccion/recetas", icon: BookOpen },
+      { label: "Fichas de costo", path: "/produccion/fichas-costo", icon: Calculator },
       { label: "Planes", path: "/produccion/planes", icon: ClipboardList },
       { label: "Producciones", path: "/produccion/producciones", icon: Factory },
       { label: "Rendimientos", path: "/produccion/rendimientos", icon: Gauge },

@@ -96,16 +96,16 @@ describe("dashboard", () => {
     expect(d.topProducts[0].costMicro).toBe(3_500_000);
     expect(d.topProducts[0].marginMicro).toBe(2_500_000);
 
-    // Serie diaria: 7 días terminando hoy, con el día completo al final
-    expect(d.daily).toHaveLength(7);
-    expect(d.daily[6].date).toBe(flow.today);
-    expect(d.daily[6].salesMicro).toBe(6_000_000);
-    expect(d.daily[6].cogsMicro).toBe(3_500_000);
-    expect(d.daily[6].grossMicro).toBe(2_500_000);
-    expect(d.daily[6].expensesMicro).toBe(2_000_000);
-    expect(d.daily[6].netMicro).toBe(500_000);
-    expect(d.daily[6].salesCount).toBe(1);
-    expect(d.daily.slice(0, 6).every((p) => p.salesMicro === 0)).toBe(true);
+    // Serie diaria: 15 días terminando hoy, con el día completo al final
+    expect(d.daily).toHaveLength(15);
+    expect(d.daily[14].date).toBe(flow.today);
+    expect(d.daily[14].salesMicro).toBe(6_000_000);
+    expect(d.daily[14].cogsMicro).toBe(3_500_000);
+    expect(d.daily[14].grossMicro).toBe(2_500_000);
+    expect(d.daily[14].expensesMicro).toBe(2_000_000);
+    expect(d.daily[14].netMicro).toBe(500_000);
+    expect(d.daily[14].salesCount).toBe(1);
+    expect(d.daily.slice(0, 14).every((p) => p.salesMicro === 0)).toBe(true);
 
     // Distribución de ventas del día por producto (dona)
     expect(d.dayProductSales).toHaveLength(1);
@@ -171,8 +171,8 @@ describe("dashboard", () => {
     expect(other.week.purchaseCount).toBe(0);
 
     // Nuevos agregados sin datos: serie en cero, sin plan ni operaciones recientes
-    expect(other.daily).toHaveLength(7);
-    expect(other.daily[6].date).toBe("2020-01-01");
+    expect(other.daily).toHaveLength(15);
+    expect(other.daily[14].date).toBe("2020-01-01");
     expect(other.daily.every((p) => p.salesMicro === 0 && p.expensesMicro === 0)).toBe(true);
     expect(other.dayProductSales).toHaveLength(0);
     expect(other.plan).toBeNull();

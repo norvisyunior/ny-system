@@ -13,6 +13,8 @@ import { massesRouter } from "./routes/masses";
 import { recipesRouter, recipeVersionsRouter } from "./routes/recipes";
 import { productionsRouter } from "./routes/productions";
 import { plansRouter } from "./routes/plans";
+import { costSheetsRouter } from "./routes/costsheets";
+import { laborRatesRouter } from "./routes/laborrates";
 import { productsRouter } from "./routes/products";
 import { transformationsRouter } from "./routes/transformations";
 import { salesRouter } from "./routes/sales";
@@ -98,6 +100,8 @@ function registerRoutes(app: express.Express): void {
   app.use("/api/recipe-versions", recipeVersionsRouter);
   app.use("/api/productions", productionsRouter);
   app.use("/api/plans", plansRouter);
+  app.use("/api/cost-sheets", costSheetsRouter);
+  app.use("/api/labor-rates", laborRatesRouter);
   app.use("/api/products", productsRouter);
   app.use("/api/transformations", transformationsRouter);
   app.use("/api/sales", salesRouter);

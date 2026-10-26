@@ -622,6 +622,30 @@ export const docCounters = sqliteTable("doc_counters", {
 });
 
 // ---------------------------------------------------------------------------
+// Tarifas de mano de obra (fichas de costo)
+// kind 'masa' → tarifa por elaborar UNA masa completa de un tipo de masa.
+// kind 'terminacion' → tarifa por UNA unidad individual terminada de un producto.
+// Solo definen el costo de la ficha/estimación: NO generan obligaciones salariales.
+// ---------------------------------------------------------------------------
+export const laborRates = sqliteTable(
+  "labor_rates",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    kind: text("kind").notNull(), // 'masa' | 'terminacion'
+    massId: integer("mass_id").references(() => masses.id),
+    productId: integer("product_id").references(() => finishedProducts.id),
+    // micro-CUP por 1 masa (kind 'masa') o por 1 unidad individual (kind 'terminacion')
+    rateMicro: integer("rate_micro").notNull(),
+    createdAt: CREATED_AT(),
+    updatedAt: text("updated_at"),
+  },
+  (t) => [
+    index("labor_rates_mass_idx").on(t.massId),
+    index("labor_rates_product_idx").on(t.productId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Ajustes de la aplicación
 // ---------------------------------------------------------------------------
 export const appSettings = sqliteTable("app_settings", {

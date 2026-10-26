@@ -4,7 +4,7 @@ import { z } from "zod";
 import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
 import { parseDecimalToMicro, mulQtyPrice } from "../../shared/money";
-import type { DB } from "../domain/types";
+import type { DB, DBOrTx } from "../domain/types";
 
 const qtyDec = z
   .union([z.string(), z.number()])
@@ -52,7 +52,7 @@ export interface MaterialListItem {
   } | null;
 }
 
-export function listMaterials(db: DB, opts: { q?: string; activeOnly?: boolean } = {}): MaterialListItem[] {
+export function listMaterials(db: DBOrTx, opts: { q?: string; activeOnly?: boolean } = {}): MaterialListItem[] {
   const rows = db
     .select()
     .from(rawMaterials)
