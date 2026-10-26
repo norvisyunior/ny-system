@@ -12,6 +12,7 @@ import {
   productionPlans,
   stockLots,
   inventoryMovements,
+  laborRates,
 } from "../../db/schema";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -40,6 +41,9 @@ export const transformationInput = z.object({
   recipeVersionId: z.number().int().positive().optional().nullable(),
   planId: z.number().int().positive().optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
+  // Mano de obra de terminación ($ total). Ausente → tarifa por unidad
+  // individual configurada × (paquetes reales × unidades por paquete).
+  laborCost: decMicro().optional().nullable(),
   // Token de idempotencia: reenvíos (doble clic) no duplican la operación.
   clientToken: z.string().trim().min(8).max(64).optional().nullable(),
 });
@@ -49,6 +53,7 @@ export interface TransformationConfirmResult {
   id: number;
   number: number;
   totalCostMicro: number;
+  laborCostMicro: number;
   expectedPackagesMicro: number;
   deviationMicro: number;
   duplicated: boolean;
@@ -60,6 +65,8 @@ interface RecipeMode {
   version: number;
   yieldMicro: number; // paquetes por masa
   productSaleUnit: string;
+  productId: number;
+  productUpp: number; // unidades por paquete
 }
 
 export const transformationPreviewInput = z.object({
@@ -198,6 +205,7 @@ export function confirmTransformation(
           id: existing.id,
           number: existing.number,
           totalCostMicro: existing.totalCostMicro,
+          laborCostMicro: existing.laborCostMicro,
           expectedPackagesMicro: existing.expectedPackagesMicro,
           deviationMicro: existing.deviationMicro,
           duplicated: true,
@@ -238,6 +246,7 @@ export function confirmTransformation(
           recipeActive: recipes.active,
           productId: recipes.productId,
           productSaleUnit: finishedProducts.saleUnitId,
+          productUpp: finishedProducts.unitsPerPackage,
         })
         .from(recipeVersions)
         .innerJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
@@ -268,6 +277,8 @@ export function confirmTransformation(
           version: row.version,
           yieldMicro: row.yieldMicro,
           productSaleUnit: row.productSaleUnit,
+          productId: row.productId,
+          productUpp: row.productUpp ?? 1,
         };
       }
     } else if (input.outputs.length === 1) {
@@ -282,13 +293,15 @@ export function confirmTransformation(
           yieldUnitId: recipeVersions.yieldUnitId,
           recipeName: recipes.name,
           productSaleUnit: finishedProducts.saleUnitId,
+          productId: recipes.productId,
+          productUpp: finishedProducts.unitsPerPackage,
         })
         .from(recipes)
         .innerJoin(recipeVersions, and(eq(recipeVersions.recipeId, recipes.id), eq(recipeVersions.status, "activa")))
         .innerJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
         .where(and(eq(recipes.productId, single.productId), eq(recipes.active, true)))
         .get();
-      if (row) {
+      if (row && row.productId != null) {
         if (row.massId !== input.massId) {
           throw domainError(
             `La masa seleccionada no corresponde a la receta "${row.recipeName}".`,
@@ -300,6 +313,8 @@ export function confirmTransformation(
           version: row.version,
           yieldMicro: row.yieldMicro,
           productSaleUnit: row.productSaleUnit,
+          productId: row.productId,
+          productUpp: row.productUpp ?? 1,
         };
       }
     }
@@ -323,6 +338,30 @@ export function confirmTransformation(
         )
       : 0;
     const deviationMicro = recipeMode ? realPackagesMicro - expectedPackagesMicro : 0;
+
+    // --- Mano de obra de terminación ---
+    // Monto indicado; si no, tarifa por unidad individual configurada ×
+    // (paquetes reales × unidades por paquete). 0 si no hay receta ni tarifa.
+    let laborCostMicro = input.laborCost ?? 0;
+    if (input.laborCost == null && recipeMode) {
+      const rr = tx
+        .select()
+        .from(laborRates)
+        .where(
+          and(
+            eq(laborRates.kind, "terminacion"),
+            eq(laborRates.productId, recipeMode.productId),
+          ),
+        )
+        .get();
+      if (rr) {
+        // unidades individuales = paquetes reales × unidades por paquete (micro)
+        const unitsTotalMicro = Number(
+          BigInt(realPackagesMicro) * BigInt(recipeMode.productUpp),
+        );
+        laborCostMicro = Number(mulQtyPrice(unitsTotalMicro, rr.rateMicro));
+      }
+    }
 
     const number = nextDocNumber(tx, "transformation");
     const [tf] = tx
@@ -444,6 +483,8 @@ export function confirmTransformation(
     }
 
     // --- 3) Reparto del costo entre los productos de salida ---
+    // El costo total incluye masas + empaques + mano de obra de terminación.
+    totalCostMicro += laborCostMicro;
     if (realPackagesMicro <= 0) throw domainError("La cantidad total de salida debe ser mayor que cero.");
     let allocated = 0n;
     const allocs: number[] = [];
@@ -502,7 +543,7 @@ export function confirmTransformation(
     }
 
     tx.update(transformations)
-      .set({ totalCostMicro })
+      .set({ totalCostMicro, laborCostMicro })
       .where(eq(transformations.id, tf.id))
       .run();
 
@@ -515,9 +556,10 @@ export function confirmTransformation(
         `${microToDecimalTrim(input.massQty, 3)} ${mass.unitId} de ${mass.name} → ` +
         `${microToDecimal(realPackagesMicro, 0)} paquetes` +
         (recipeMode ? ` (esperados ${microToDecimal(expectedPackagesMicro, 0)})` : "") +
-        `, costo ${formatCUP(totalCostMicro)}`,
+        `, costo ${formatCUP(totalCostMicro)} (incluye MO ${formatCUP(laborCostMicro)})`,
       details: {
         totalCostMicro,
+        laborCostMicro,
         massQty: input.massQty,
         expectedPackagesMicro,
         realPackagesMicro,
@@ -531,6 +573,7 @@ export function confirmTransformation(
       id: tf.id,
       number,
       totalCostMicro,
+      laborCostMicro,
       expectedPackagesMicro,
       deviationMicro,
       duplicated: false,
@@ -554,6 +597,7 @@ export interface TransformationListRow {
   recipeVersion: number | null;
   planId: number | null;
   totalCostMicro: number;
+  laborCostMicro: number;
   status: string;
 }
 
@@ -572,6 +616,7 @@ export function listTransformations(
       massName: masses.name,
       massUnit: masses.unitId,
       totalCostMicro: transformations.totalCostMicro,
+      laborCostMicro: transformations.laborCostMicro,
       status: transformations.status,
       expectedPackagesMicro: transformations.expectedPackagesMicro,
       deviationMicro: transformations.deviationMicro,
@@ -611,6 +656,7 @@ export function getTransformationDetail(db: DBOrTx, id: number) {
       expectedPackagesMicro: transformations.expectedPackagesMicro,
       deviationMicro: transformations.deviationMicro,
       totalCostMicro: transformations.totalCostMicro,
+      laborCostMicro: transformations.laborCostMicro,
       status: transformations.status,
       notes: transformations.notes,
       cancelledAt: transformations.cancelledAt,

@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
+import { microToDecimalTrim } from "@shared/money";
 import { PageHeader } from "../components/PageHeader";
 import {
   Badge,
@@ -44,6 +46,7 @@ interface ProductionDetail {
   yieldUnitId: string;
   totalCostMicro: number;
   unitCostMicro: number;
+  laborCostMicro: number;
   status: string;
   notes: string | null;
   cancelledAt: string | null;
@@ -62,11 +65,25 @@ interface RecipeOption {
   id: number;
   name: string;
   active: boolean;
+  productId: number | null;
+  productName: string | null;
   versionId: number | null;
   version: number | null;
+  massId: number | null;
   massName: string | null;
   expectedYieldMicro: number | null;
   yieldUnitId: string | null;
+}
+
+interface LaborRateRow {
+  id: number;
+  kind: "masa" | "terminacion";
+  massId: number | null;
+  productId: number | null;
+  itemLabel: string | null;
+  rateMicro: number;
+  unitLabel: string;
+  updatedAt: string | null;
 }
 
 interface RecipeVersionDetail {
@@ -102,10 +119,19 @@ interface ConfirmResult {
 
 const isPositiveInt = (v: string) => /^\d+$/.test(v) && Number(v) > 0;
 
+/** Monto de mano de obra válido: vacío (usa la tarifa) o número ≥ 0. */
+const laborValidText = (v: string): boolean => {
+  const t = v.trim().replace(",", ".");
+  if (t === "") return true;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0;
+};
+
 export function ProductionsPage() {
   const [rows, setRows] = useState<ProductionRow[]>([]);
   const [recipes, setRecipes] = useState<RecipeOption[]>([]);
   const [plans, setPlans] = useState<PlanOption[]>([]);
+  const [rates, setRates] = useState<LaborRateRow[]>([]);
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "form">("list");
@@ -116,12 +142,17 @@ export function ProductionsPage() {
     planId: "",
     responsible: "",
     notes: "",
+    laborCost: "",
   });
+  // Mano de obra precargada desde la tarifa (editable; vacío = usar la tarifa).
+  const [laborDirty, setLaborDirty] = useState(false);
   const [clientToken, setClientToken] = useState(newClientToken);
   const [preview, setPreview] = useState<RecipeVersionDetail | null>(null);
   const [detail, setDetail] = useState<ProductionDetail | null>(null);
   const [annulReason, setAnnulReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryHandled = useRef(false);
 
   // Día visible: por defecto hoy; se cambia con el filtro de fecha.
   const [date, setDate] = useState(todayISO());
@@ -137,10 +168,15 @@ export function ProductionsPage() {
   }, [date, scope]);
   useEffect(load, [load]);
   useEffect(() => {
-    Promise.all([api.get<RecipeOption[]>("/recipes"), api.get<PlanOption[]>("/plans")])
-      .then(([rs, ps]) => {
+    Promise.all([
+      api.get<RecipeOption[]>("/recipes"),
+      api.get<PlanOption[]>("/plans"),
+      api.get<LaborRateRow[]>("/labor-rates"),
+    ])
+      .then(([rs, ps, lr]) => {
         setRecipes(rs.filter((r) => r.active && r.versionId != null));
         setPlans(ps);
+        setRates(lr);
       })
       .catch(() => undefined);
   }, []);
@@ -155,8 +191,22 @@ export function ProductionsPage() {
   );
   const selectedPlan = plansForRecipe.find((p) => String(p.id) === form.planId);
 
+  // Default de mano de obra: tarifa de la masa × masas a elaborar, hasta que
+  // el usuario edite el campo (o lo deje vacío para volver a la tarifa).
+  useEffect(() => {
+    if (laborDirty) return;
+    const recipe = recipes.find((r) => String(r.versionId) === form.recipeVersionId);
+    if (!recipe || recipe.massId == null) return;
+    const n = isPositiveInt(form.massesCount) ? Number(form.massesCount) : null;
+    if (n == null) return;
+    const rate = rates.find((r) => r.kind === "masa" && r.massId === recipe.massId);
+    if (rate) setForm((f) => ({ ...f, laborCost: microToDecimalTrim(rate.rateMicro * n, 2) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [laborDirty, rates, recipes, form.recipeVersionId, form.massesCount]);
+
   const onRecipeChange = (versionId: string) => {
     setForm((f) => ({ ...f, recipeVersionId: versionId, massesCount: "", planId: "" }));
+    setLaborDirty(false);
     setPreview(null);
     if (!versionId) return;
     api
@@ -173,12 +223,41 @@ export function ProductionsPage() {
       planId: "",
       responsible: "",
       notes: "",
+      laborCost: "",
     });
+    setLaborDirty(false);
     setClientToken(newClientToken());
     setPreview(null);
     setError(null);
     setView("form");
   };
+
+  // Lanzado desde la ficha de costo: masa/simulación pobran el formulario.
+  useEffect(() => {
+    const rv = searchParams.get("recipeVersionId");
+    if (!rv || queryHandled.current) return;
+    queryHandled.current = true;
+    setSearchParams({}, { replace: true });
+    setView("form");
+    setForm({
+      productionDate: todayISO(),
+      recipeVersionId: rv,
+      massesCount: searchParams.get("masses") ?? "",
+      planId: "",
+      responsible: "",
+      notes: "",
+      laborCost: "",
+    });
+    setLaborDirty(false);
+    setClientToken(newClientToken());
+    setPreview(null);
+    setError(null);
+    api
+      .get<RecipeVersionDetail>(`/recipe-versions/${rv}`)
+      .then(setPreview)
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const save = async () => {
     setSaving(true);
@@ -189,6 +268,7 @@ export function ProductionsPage() {
         productionDate: form.productionDate,
         recipeVersionId: Number(form.recipeVersionId),
         massesCount: form.massesCount,
+        laborCost: form.laborCost.trim() === "" ? null : form.laborCost.trim().replace(",", "."),
         planId: form.planId ? Number(form.planId) : null,
         responsible: form.responsible.trim() || null,
         notes: form.notes || null,
@@ -237,6 +317,7 @@ export function ProductionsPage() {
   );
 
   const massesInt = isPositiveInt(form.massesCount);
+  const laborValid = laborValidText(form.laborCost);
   const expectedMasses = selectedPlan
     ? selectedPlan.plannedMassesMicro
     : massesInt
@@ -402,6 +483,21 @@ export function ProductionsPage() {
               </select>
             </div>
             <div className="field">
+              <label>Mano de obra de elaboración ($)</label>
+              <input
+                value={form.laborCost}
+                inputMode="decimal"
+                placeholder="Tarifa configurada"
+                onChange={(e) => {
+                  setForm({ ...form, laborCost: e.target.value });
+                  setLaborDirty(e.target.value.trim() !== "");
+                }}
+              />
+              <p className="mt-1 text-[11px] leading-snug text-slate-400">
+                Se precarga como tarifa × masas a elaborar. Vacío = usa la tarifa configurada; 0 = sin costo.
+              </p>
+            </div>
+            <div className="field">
               <label>Notas</label>
               <input
                 value={form.notes}
@@ -448,9 +544,10 @@ export function ProductionsPage() {
 
           <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700">
             Al confirmar se consumen los ingredientes de fase <strong>masa</strong> por PEPS al
-            precio real de cada lote y se crea el lote de masa con su costo unitario real (costo
-            total ÷ masas). Los materiales de fase <strong>paquete</strong> se descuentan al
-            terminar (transformación). El reenvío accidental no duplica la operación.
+            precio real de cada lote, se suma la mano de obra indicada al costo total y se crea el
+            lote de masa con su costo unitario real (costo total ÷ masas). Los materiales de fase{" "}
+            <strong>paquete</strong> se descuentan al terminar (transformación). El reenvío
+            accidental no duplica la operación.
           </div>
 
           <div className="mt-4 flex justify-end gap-2">
@@ -460,7 +557,7 @@ export function ProductionsPage() {
             <button
               className="btn btn-primary"
               onClick={save}
-              disabled={saving || !form.recipeVersionId || !massesInt}
+              disabled={saving || !form.recipeVersionId || !massesInt || !laborValid}
             >
               {saving ? "Confirmando..." : "Confirmar producción"}
             </button>
@@ -537,6 +634,14 @@ export function ProductionsPage() {
               ))}
             </tbody>
             <tfoot>
+              {detail.laborCostMicro > 0 && (
+                <tr>
+                  <td colSpan={3} className="text-right text-sm text-slate-500">
+                    Mano de obra (elaboración)
+                  </td>
+                  <td className="num text-slate-500">{fmtMoney(detail.laborCostMicro)}</td>
+                </tr>
+              )}
               <tr>
                 <td colSpan={3} className="text-right text-sm font-bold">
                   TOTAL
@@ -546,8 +651,8 @@ export function ProductionsPage() {
             </tfoot>
           </table>
           <p className="mb-4 text-xs text-slate-500">
-            Los materiales de fase paquete (empaques, etiquetas, etc.) se consumen al terminar la
-            producción, en la transformación.
+            El costo total incluye la mano de obra de elaboración. Los materiales de fase paquete
+            (empaques, etiquetas, etc.) se consumen al terminar la producción, en la transformación.
           </p>
 
           {detail.status === "confirmada" && (

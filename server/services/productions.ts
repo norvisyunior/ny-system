@@ -10,6 +10,7 @@ import {
   rawMaterials,
   inventoryMovements,
   stockLots,
+  laborRates,
 } from "../../db/schema";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -28,6 +29,9 @@ export const productionInput = z.object({
   recipeVersionId: z.number().int().positive("Versión de receta requerida."),
   // Número de masas o lotes completos elaborados (entero, unidad de la masa).
   massesCount: decMicro({ minExclusive: true }),
+  // Mano de obra de elaboración ($ total). Ausente → tarifa configurada por
+  // masa (labor_rates) × masas elaboradas; 0 si no hay tarifa configurada.
+  laborCost: decMicro().optional().nullable(),
   planId: z.number().int().positive().optional().nullable(),
   responsible: z.string().trim().max(120).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
@@ -44,6 +48,7 @@ export interface ProductionConfirmResult {
   number: number;
   totalCostMicro: number;
   unitCostMicro: number;
+  laborCostMicro: number;
   expectedYieldMicro: number;
   realYieldMicro: number;
   deviationMicro: number;
@@ -70,6 +75,7 @@ export function confirmProduction(db: DB, catalog: UnitsCatalog, input: Producti
           number: existing.number,
           totalCostMicro: existing.totalCostMicro,
           unitCostMicro: existing.unitCostMicro,
+          laborCostMicro: existing.laborCostMicro,
           expectedYieldMicro: existing.expectedYieldMicro,
           realYieldMicro: existing.realYieldMicro,
           deviationMicro: existing.realYieldMicro - existing.expectedYieldMicro,
@@ -130,6 +136,16 @@ export function confirmProduction(db: DB, catalog: UnitsCatalog, input: Producti
 
     const massesInt = input.massesCount / MICRO;
     const number = nextDocNumber(tx, "production");
+
+    // Mano de obra de elaboración: monto indicado o tarifa configurada × masas.
+    const laborRateRow = tx
+      .select()
+      .from(laborRates)
+      .where(and(eq(laborRates.kind, "masa"), eq(laborRates.massId, version.massId)))
+      .get();
+    const laborCostMicro =
+      input.laborCost ??
+      (laborRateRow ? Number(mulQtyPrice(input.massesCount, laborRateRow.rateMicro)) : 0);
     const [batch] = tx
       .insert(productionBatches)
       .values({
@@ -195,7 +211,8 @@ export function confirmProduction(db: DB, catalog: UnitsCatalog, input: Producti
         .run();
     }
 
-    // costo unitario real por masa completa (micro-CUP)
+    // costo total = materiales + mano de obra; unitario = total / masas
+    totalCostMicro += laborCostMicro;
     const unitCostMicro = Number(
       divRoundAway(BigInt(totalCostMicro) * BigInt(MICRO), BigInt(input.massesCount)),
     );
@@ -239,7 +256,7 @@ export function confirmProduction(db: DB, catalog: UnitsCatalog, input: Producti
       .run();
 
     tx.update(productionBatches)
-      .set({ totalCostMicro, unitCostMicro })
+      .set({ totalCostMicro, unitCostMicro, laborCostMicro })
       .where(eq(productionBatches.id, batch.id))
       .run();
 
@@ -249,10 +266,11 @@ export function confirmProduction(db: DB, catalog: UnitsCatalog, input: Producti
       entityId: batch.id,
       summary:
         `Elaboración #${String(number).padStart(5, "0")} confirmada: ${recipe?.name ?? ""} v${version.version} — ` +
-        `${massesInt} masa(s), costo ${formatCUP(totalCostMicro)}`,
+        `${massesInt} masa(s), costo ${formatCUP(totalCostMicro)} (incluye MO ${formatCUP(laborCostMicro)})`,
       details: {
         totalCostMicro,
         unitCostMicro,
+        laborCostMicro,
         expected: expectedYieldMicro,
         real: input.massesCount,
         planId: input.planId ?? null,
@@ -265,6 +283,7 @@ export function confirmProduction(db: DB, catalog: UnitsCatalog, input: Producti
       number,
       totalCostMicro,
       unitCostMicro,
+      laborCostMicro,
       expectedYieldMicro,
       realYieldMicro: input.massesCount,
       deviationMicro: input.massesCount - expectedYieldMicro,
@@ -285,6 +304,7 @@ export interface ProductionListRow {
   yieldUnitId: string;
   totalCostMicro: number;
   unitCostMicro: number;
+  laborCostMicro: number;
   status: string;
 }
 
@@ -305,6 +325,7 @@ export function listProductions(db: DB, opts: { from?: string; to?: string } = {
       yieldUnitId: productionBatches.yieldUnitId,
       totalCostMicro: productionBatches.totalCostMicro,
       unitCostMicro: productionBatches.unitCostMicro,
+      laborCostMicro: productionBatches.laborCostMicro,
       status: productionBatches.status,
     })
     .from(productionBatches)
@@ -333,6 +354,7 @@ export function getProductionDetail(db: DB, id: number) {
       yieldUnitId: productionBatches.yieldUnitId,
       totalCostMicro: productionBatches.totalCostMicro,
       unitCostMicro: productionBatches.unitCostMicro,
+      laborCostMicro: productionBatches.laborCostMicro,
       status: productionBatches.status,
       notes: productionBatches.notes,
       cancelledAt: productionBatches.cancelledAt,

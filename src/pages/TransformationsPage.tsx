@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
+import { microToDecimalTrim } from "@shared/money";
 import { PageHeader } from "../components/PageHeader";
 import {
   Badge,
@@ -50,6 +52,7 @@ interface TransformationDetail {
   expectedPackagesMicro: number;
   deviationMicro: number;
   totalCostMicro: number;
+  laborCostMicro: number;
   status: string;
   notes: string | null;
   cancelledAt: string | null;
@@ -92,7 +95,18 @@ interface Product {
   id: number;
   name: string;
   saleUnitId: string;
+  unitsPerPackage: number;
   active: boolean;
+}
+interface LaborRateRow {
+  id: number;
+  kind: "masa" | "terminacion";
+  massId: number | null;
+  productId: number | null;
+  itemLabel: string | null;
+  rateMicro: number;
+  unitLabel: string;
+  updatedAt: string | null;
 }
 interface RecipeOption {
   id: number;
@@ -143,11 +157,20 @@ interface PackagingPreview {
 
 const toMicro = (v: string) => Math.round(Number(v) * 1_000_000);
 
+/** Monto de mano de obra válido: vacío (usa la tarifa) o número ≥ 0. */
+const laborValidText = (v: string): boolean => {
+  const t = v.trim().replace(",", ".");
+  if (t === "") return true;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0;
+};
+
 export function TransformationsPage() {
   const [rows, setRows] = useState<TransformationRow[]>([]);
   const [masses, setMasses] = useState<Mass[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [recipes, setRecipes] = useState<RecipeOption[]>([]);
+  const [rates, setRates] = useState<LaborRateRow[]>([]);
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "form">("list");
@@ -157,13 +180,19 @@ export function TransformationsPage() {
     massQty: "",
     recipeVersionId: "",
     notes: "",
+    laborCost: "",
     outputs: [{ productId: "", qty: "" }] as OutputRow[],
   });
+  // Mano de obra precargada desde la tarifa (editable; vacío = usar la tarifa).
+  const [laborDirty, setLaborDirty] = useState(false);
   const [clientToken, setClientToken] = useState(newClientToken);
   const [detail, setDetail] = useState<TransformationDetail | null>(null);
   const [annulReason, setAnnulReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [packPreview, setPackPreview] = useState<PackagingPreview | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryHandled = useRef(false);
+  const [recipesLoaded, setRecipesLoaded] = useState(false);
 
   // Día visible: por defecto hoy; se cambia con el filtro de fecha.
   const [date, setDate] = useState(todayISO());
@@ -183,11 +212,14 @@ export function TransformationsPage() {
       api.get<Mass[]>("/masses"),
       api.get<Product[]>("/products"),
       api.get<RecipeOption[]>("/recipes"),
+      api.get<LaborRateRow[]>("/labor-rates"),
     ])
-      .then(([m, p, r]) => {
+      .then(([m, p, r, lr]) => {
         setMasses(m.filter((x) => x.active));
         setProducts(p.filter((x) => x.active));
         setRecipes(r.filter((x) => x.active && x.versionId != null && x.productId != null));
+        setRates(lr);
+        setRecipesLoaded(true);
       })
       .catch(() => undefined);
   }, []);
@@ -232,6 +264,25 @@ export function TransformationsPage() {
     };
   }, [form.recipeVersionId, realMicro]);
 
+  // Mano de obra de terminación precargada: tarifa del producto × unidades
+  // individuales reales (paquetes reales × unidades por paquete), hasta que
+  // el usuario edite el campo (o lo deje vacío para volver a la tarifa).
+  useEffect(() => {
+    if (laborDirty) return;
+    const productIdRaw = form.outputs[0]?.productId || "";
+    const product = products.find((p) => String(p.id) === productIdRaw);
+    if (!product || realMicro <= 0) return;
+    const rate = rates.find((r) => r.kind === "terminacion" && r.productId === product.id);
+    if (!rate) return;
+    const upp = product.unitsPerPackage || 1;
+    const unitsTotalMicro = realMicro * upp;
+    const total = Number(
+      (BigInt(rate.rateMicro) * BigInt(unitsTotalMicro)) / BigInt(1_000_000),
+    );
+    setForm((f) => ({ ...f, laborCost: microToDecimalTrim(total, 2) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [laborDirty, rates, realMicro, form.outputs, products]);
+
   const openForm = () => {
     setForm({
       transformDate: todayISO(),
@@ -239,13 +290,45 @@ export function TransformationsPage() {
       massQty: "",
       recipeVersionId: "",
       notes: "",
+      laborCost: "",
       outputs: [{ productId: "", qty: "" }],
     });
+    setLaborDirty(false);
     setClientToken(newClientToken());
     setError(null);
     setPackPreview(null);
     setView("form");
   };
+
+  // Lanzado desde la ficha de costo: precarga receta, masa y paquetes simulados.
+  useEffect(() => {
+    const rv = searchParams.get("recipeVersionId");
+    if (queryHandled.current || !rv || !recipesLoaded) return;
+    const recipe = recipes.find((r) => String(r.versionId) === rv && r.productId != null);
+    if (!recipe) return;
+    queryHandled.current = true;
+    setView("form");
+    setSearchParams({}, { replace: true });
+    setForm({
+      transformDate: todayISO(),
+      massId: recipe.massId != null ? String(recipe.massId) : "",
+      massQty: searchParams.get("massQty") ?? "",
+      recipeVersionId: rv,
+      notes: "",
+      laborCost: "",
+      outputs: [
+        {
+          productId: String(recipe.productId),
+          qty: searchParams.get("outputQty") ?? "",
+        },
+      ],
+    });
+    setLaborDirty(false);
+    setClientToken(newClientToken());
+    setPackPreview(null);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, recipes, recipesLoaded]);
 
   const setOutput = (idx: number, patch: Partial<OutputRow>) => {
     setForm((f) => ({
@@ -277,6 +360,7 @@ export function TransformationsPage() {
         massId: Number(form.massId),
         massQty: form.massQty,
         recipeVersionId: form.recipeVersionId ? Number(form.recipeVersionId) : null,
+        laborCost: form.laborCost.trim() === "" ? null : form.laborCost.trim().replace(",", "."),
         notes: form.notes || null,
         clientToken,
         outputs: form.outputs
@@ -328,6 +412,7 @@ export function TransformationsPage() {
   const canSave =
     Boolean(form.massId) &&
     Boolean(form.massQty) &&
+    laborValidText(form.laborCost) &&
     form.outputs.some((o) => o.productId && o.qty);
 
   return (
@@ -661,6 +746,21 @@ export function TransformationsPage() {
 
           <div className="mt-4 grid grid-cols-3 gap-3">
             <div className="field">
+              <label>Mano de obra de terminación ($)</label>
+              <input
+                value={form.laborCost}
+                inputMode="decimal"
+                placeholder="Tarifa configurada"
+                onChange={(e) => {
+                  setForm({ ...form, laborCost: e.target.value });
+                  setLaborDirty(e.target.value.trim() !== "");
+                }}
+              />
+              <p className="mt-1 text-[11px] leading-snug text-slate-400">
+                Se precarga como tarifa × unidades individuales reales. Vacío = usa la tarifa configurada; 0 = sin costo.
+              </p>
+            </div>
+            <div className="field">
               <label>Notas</label>
               <input
                 value={form.notes}
@@ -670,9 +770,9 @@ export function TransformationsPage() {
           </div>
 
           <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700">
-            El costo de la masa consumida (PEPS) y, si hay receta, los materiales de fase
-            <strong> paquete</strong> (calculados sobre los paquetes REALES) se reparten
-            proporcionalmente entre los productos de salida. Los paquetes esperados y la
+            El costo de la masa consumida (PEPS), la mano de obra indicada y, si hay receta, los
+            materiales de fase <strong>paquete</strong> (calculados sobre los paquetes REALES) se
+            reparten proporcionalmente entre los productos de salida. Los paquetes esperados y la
             desviación quedan guardados en el histórico. El reenvío accidental no duplica la
             operación.
           </div>
@@ -781,6 +881,15 @@ export function TransformationsPage() {
               ))}
             </tbody>
             <tfoot>
+              {detail.laborCostMicro > 0 && (
+                <tr>
+                  <td colSpan={2} className="text-right text-sm text-slate-500">
+                    Mano de obra (terminación)
+                  </td>
+                  <td className="num text-slate-500">{fmtMoney(detail.laborCostMicro)}</td>
+                  <td></td>
+                </tr>
+              )}
               <tr>
                 <td colSpan={2} className="text-right text-sm font-bold">
                   TOTAL

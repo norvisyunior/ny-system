@@ -338,6 +338,9 @@ export const productionBatches = sqliteTable(
     yieldUnitId: text("yield_unit_id")
       .notNull()
       .references(() => units.code),
+    // Mano de obra de elaboración (tarifa por masa × masas). Es costo directo
+    // del lote: unit_cost = (materiales + MO) / masas.
+    laborCostMicro: integer("labor_cost_micro").notNull().default(0),
     totalCostMicro: integer("total_cost_micro").notNull().default(0),
     unitCostMicro: integer("unit_cost_micro").notNull().default(0),
     status: text("status").notNull().default("confirmada"), // confirmada | anulada
@@ -411,6 +414,8 @@ export const transformations = sqliteTable(
     expectedPackagesMicro: integer("expected_packages_micro").notNull().default(0),
     // desviación = paquetes reales − paquetes esperados (conservada históricamente)
     deviationMicro: integer("deviation_micro").notNull().default(0),
+    // Mano de obra de terminación (tarifa por unidad individual × unidades).
+    laborCostMicro: integer("labor_cost_micro").notNull().default(0),
     totalCostMicro: integer("total_cost_micro").notNull().default(0),
     status: text("status").notNull().default("confirmada"), // confirmada | anulada
     notes: text("notes"),

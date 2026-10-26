@@ -1,5 +1,18 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, ChevronsUpDown, Cookie, Info, RotateCcw, Table2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { microToDecimalTrim } from "@shared/money";
+import {
+  Boxes,
+  CalendarDays,
+  ChevronsUpDown,
+  Cookie,
+  Factory,
+  Info,
+  RotateCcw,
+  Save,
+  Table2,
+  X,
+} from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { ErrorAlert, Modal, Badge } from "../components/ui";
 
@@ -114,6 +127,7 @@ interface CostSheet {
 interface RecipeOption {
   id: number;
   name: string;
+  description: string | null;
   active: boolean;
   productId: number | null;
   productName: string | null;
@@ -264,7 +278,22 @@ const emptyOv = (): Overrides => ({
   itemPrice: {},
 });
 
-function buildPayload(versionId: string, ov: Overrides): Record<string, unknown> {
+/** Líneas agregadas en la simulación. El backend les asigna un id temporal
+ *  negativo (-1, -2, …) según el orden del arreglo, así que la posición en
+ *  `added` determina el id y los selects excluyen materiales repetidos. */
+interface AddedLine {
+  key: number; // clave local estable (refs entre render y recálculo)
+  materialId: number;
+  phase: "masa" | "paquete";
+  qty: string; // en la unidad del material (base); vacío → 1 unidad base
+  price: string; // precio manual por unidad base; vacío → precio del sistema
+}
+
+function buildPayload(
+  versionId: string,
+  ov: Overrides,
+  lines: { removed: number[]; added: AddedLine[] },
+): Record<string, unknown> {
   const input: Record<string, unknown> = { recipeVersionId: Number(versionId) };
   const setDec = (key: string, s: string) => {
     const v = decOrNull(s);
@@ -301,7 +330,24 @@ function buildPayload(versionId: string, ov: Overrides): Record<string, unknown>
       else items.push({ id, unitPrice: p });
     }
   }
+  // Precio manual de las líneas agregadas (id temporal negativo por orden).
+  for (let i = 0; i < lines.added.length; i++) {
+    const p = decOrNull(lines.added[i].price);
+    if (p != null) items.push({ id: -(i + 1), unitPrice: p });
+  }
   if (items.length > 0) input.items = items;
+  if (lines.added.length > 0) {
+    input.addItems = lines.added.map((a) => {
+      const it: { materialId: number; phase: "masa" | "paquete"; qty?: number } = {
+        materialId: a.materialId,
+        phase: a.phase,
+      };
+      const q = decOrNull(a.qty);
+      if (q != null && q > 0) it.qty = q;
+      return it;
+    });
+  }
+  if (lines.removed.length > 0) input.removedIds = lines.removed;
   return input;
 }
 
@@ -327,6 +373,7 @@ const PRICE_LABEL: Record<PriceBasis, string> = {
 function EstadoBadge({ line, ov }: { line: CostItemLine; ov: Overrides }) {
   const priceOv = ov.itemPrice[line.recipeItemId] !== undefined;
   const qtyOv = ov.itemQty[line.recipeItemId] !== undefined;
+  if (line.recipeItemId < 0) return <Badge tone="blue">Agregado</Badge>;
   if (line.substituted) return <Badge tone="blue">Sustituido</Badge>;
   if (priceOv || qtyOv) return <Badge tone="amber">Editado</Badge>;
   if (line.priceBasis === "ninguno") return <Badge tone="red">Sin precio</Badge>;
@@ -344,16 +391,24 @@ function IngredientesCard({
   sheet,
   ov,
   materials,
+  addedLines,
   onQty,
   onSub,
   onPrice,
+  onAddedLine,
+  onAddMaterial,
+  onRemove,
 }: {
   sheet: CostSheet;
   ov: Overrides;
   materials: MaterialOption[];
+  addedLines: AddedLine[];
   onQty: (itemId: number, v: string) => void;
   onSub: (itemId: number, v: string) => void;
   onPrice: (itemId: number, v: string) => void;
+  onAddedLine: (key: number, patch: Partial<AddedLine>) => void;
+  onAddMaterial: (materialId: number) => void;
+  onRemove: (line: CostItemLine) => void;
 }) {
   const [open, setOpen] = useState<Set<number>>(new Set());
   const toggle = (id: number) =>
@@ -370,6 +425,13 @@ function IngredientesCard({
       : `${fmtDec(mMicro, 1)} masas`;
   const pesoTotal = sheet.qtyTotals[0];
   const ingredientesCost = sheet.costs.ingredientsMicro;
+  // Un material no puede repetirse en la ficha (la receta lo impide al guardar).
+  const excluded = new Set<number>([
+    ...addedLines.map((a) => a.materialId),
+    ...sheet.ingredients.map((l) => l.rawMaterialId),
+    ...sheet.packaging.map((l) => l.rawMaterialId),
+  ]);
+  const available = materials.filter((m) => !excluded.has(m.id));
 
   return (
     <section className={`${CARD} p-5`}>
@@ -385,50 +447,66 @@ function IngredientesCard({
               <th className="pb-2">Precio U.</th>
               <th className="pb-2">Costo</th>
               <th className="pb-2">Estado</th>
+              <th className="w-8 pb-2"></th>
             </tr>
           </thead>
         <tbody>
           {sheet.ingredients.map((l) => {
-            const sub = ov.itemSub[l.recipeItemId] ?? "";
-            const qtyOv = ov.itemQty[l.recipeItemId];
-            const qty = qtyInputVal(l.qtyPerMicro, qtyOv);
-            const priceOv = ov.itemPrice[l.recipeItemId];
-            const price = priceInputVal(l.pricePerBaseMicro, priceOv);
-            const isOpen = open.has(l.recipeItemId);
+            const isAdded = l.recipeItemId < 0;
+            const added = isAdded ? addedLines[-l.recipeItemId - 1] : undefined;
+            const sub = isAdded ? "" : (ov.itemSub[l.recipeItemId] ?? "");
+            const qtyOv = isAdded ? undefined : ov.itemQty[l.recipeItemId];
+            const qty = isAdded
+              ? (added?.qty !== "" && added ? added.qty : fmtQtyEs(l.qtyPerMicro))
+              : qtyInputVal(l.qtyPerMicro, qtyOv);
+            const priceOv = isAdded ? undefined : ov.itemPrice[l.recipeItemId];
+            const price = isAdded
+              ? (added?.price !== "" && added ? added.price : priceInputVal(l.pricePerBaseMicro, undefined))
+              : priceInputVal(l.pricePerBaseMicro, priceOv);
+            const isOpen = !isAdded && open.has(l.recipeItemId);
             return (
               <Fragment key={l.recipeItemId}>
                 <tr className="border-b border-slate-200 text-center">
                   <td className="w-7 py-1.5">
-                    <button
-                      className={`inline-flex items-center justify-center text-slate-400 transition-transform hover:text-slate-600 ${isOpen ? "rotate-90" : ""}`}
-                      onClick={() => toggle(l.recipeItemId)}
-                      aria-label="Ver fuente del precio"
-                    >
-                      ›
-                    </button>
+                    {!isAdded && (
+                      <button
+                        className={`inline-flex items-center justify-center text-slate-400 transition-transform hover:text-slate-600 ${isOpen ? "rotate-90" : ""}`}
+                        onClick={() => toggle(l.recipeItemId)}
+                        aria-label="Ver fuente del precio"
+                      >
+                        ›
+                      </button>
+                    )}
                   </td>
                   <td className="max-w-[180px] py-1.5 text-left">
                     <select
                       className={`h-7 max-w-[180px] truncate rounded-md border px-1 text-[12px] ${l.substituted ? "border-amber-300 bg-amber-50" : "border-transparent bg-transparent hover:border-slate-200"}`}
                       value={sub}
+                      disabled={isAdded}
+                      title={isAdded ? "Línea agregada en la simulación" : undefined}
                       onChange={(e) => onSub(l.recipeItemId, e.target.value)}
                     >
-                      <option value="">{l.originalName} · original</option>
-                      {materials
-                        .filter((m) => m.id !== l.originalMaterialId)
-                        .map((m) => (
-                          <option key={m.id} value={String(m.id)}>
-                            {m.name}
-                          </option>
-                        ))}
+                      <option value="">{l.originalName}{isAdded ? "" : " · original"}</option>
+                      {!isAdded &&
+                        materials
+                          .filter((m) => m.id !== l.originalMaterialId)
+                          .map((m) => (
+                            <option key={m.id} value={String(m.id)}>
+                              {m.name}
+                            </option>
+                          ))}
                     </select>
                   </td>
                   <td className="py-1.5">
                     <input
-                      className={`mx-auto h-7 w-14 rounded-md px-1 text-center text-[12px] ${qtyOv !== undefined ? INPUT_OV_Q : "border border-transparent bg-transparent hover:border-slate-200"}`}
+                      className={`mx-auto h-7 w-14 rounded-md px-1 text-center text-[12px] ${isAdded ? "border border-sky-200 bg-sky-50 text-[#2159c6]" : qtyOv !== undefined ? INPUT_OV_Q : "border border-transparent bg-transparent hover:border-slate-200"}`}
                       inputMode="decimal"
                       value={qty}
-                      onChange={(e) => onQty(l.recipeItemId, e.target.value)}
+                      onChange={(e) =>
+                        isAdded && added
+                          ? onAddedLine(added.key, { qty: e.target.value })
+                          : onQty(l.recipeItemId, e.target.value)
+                      }
                     />
                   </td>
                   <td className="py-1.5 whitespace-nowrap text-slate-700">
@@ -441,16 +519,22 @@ function IngredientesCard({
                     ) : (
                       <span className="inline-flex items-center gap-1">
                         <input
-                          className={`h-7 w-[76px] rounded-md px-1 text-center text-[13px] ${priceOv !== undefined ? INPUT_OV_P : "border border-slate-200"}`}
+                          className={`h-7 w-[76px] rounded-md px-1 text-center text-[13px] ${isAdded ? "border border-sky-200 bg-sky-50 text-[#2159c6]" : priceOv !== undefined ? INPUT_OV_P : "border border-slate-200"}`}
                           inputMode="decimal"
                           value={price}
-                          onChange={(e) => onPrice(l.recipeItemId, e.target.value)}
+                          onChange={(e) =>
+                            isAdded && added
+                              ? onAddedLine(added.key, { price: e.target.value })
+                              : onPrice(l.recipeItemId, e.target.value)
+                          }
                         />
-                        <ChevronsUpDown
-                          size={13}
-                          className="cursor-pointer text-slate-300 hover:text-slate-500"
-                          onClick={() => onPrice(l.recipeItemId, "")}
-                        />
+                        {!isAdded && (
+                          <ChevronsUpDown
+                            size={13}
+                            className="cursor-pointer text-slate-300 hover:text-slate-500"
+                            onClick={() => onPrice(l.recipeItemId, "")}
+                          />
+                        )}
                       </span>
                     )}
                   </td>
@@ -460,11 +544,20 @@ function IngredientesCard({
                   <td className="py-1.5">
                     <EstadoBadge line={l} ov={ov} />
                   </td>
+                  <td className="py-1.5">
+                    <button
+                      className="mx-auto block text-slate-300 transition hover:text-red-500"
+                      title="Quitar de la ficha"
+                      onClick={() => onRemove(l)}
+                    >
+                      <X size={14} />
+                    </button>
+                  </td>
                 </tr>
                 {isOpen && (
                   <tr className="border-b border-slate-200 bg-slate-50/60 text-[12px]">
                     <td></td>
-                    <td colSpan={6} className="py-2 text-slate-600">
+                    <td colSpan={7} className="py-2 text-slate-600">
                       <span className="mr-4">
                         <span className="font-semibold text-slate-700">Fuente: </span>
                         {PRICE_LABEL[l.priceBasis]}
@@ -485,6 +578,32 @@ function IngredientesCard({
             );
           })}
           <tr className="border-t border-slate-200 bg-slate-50/70 text-[13px]">
+            <td colSpan={8} className="border-t-0 bg-white py-2">
+              {available.length > 0 ? (
+                <div className="flex justify-center">
+                  <select
+                    className="h-8 w-56 rounded-md border border-dashed border-slate-300 px-2 text-[12px] text-slate-500 transition hover:border-sky-300 focus:border-sky-400"
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) onAddMaterial(Number(e.target.value));
+                    }}
+                  >
+                    <option value="">＋ Agregar ingrediente…</option>
+                    {available.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} <>({m.unitLabel})</>
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="text-center text-[11px] font-medium text-slate-400">
+                  Todos los materiales activos ya están en la ficha.
+                </div>
+              )}
+            </td>
+          </tr>
+          <tr className="border-b border-slate-200 bg-slate-50/70 text-[13px]">
             <td className="py-2.5"></td>
             <td className="py-2.5 font-bold text-slate-700">Totales</td>
             <td colSpan={2}></td>
@@ -500,6 +619,7 @@ function IngredientesCard({
                 {fmtDec(ingredientesCost, 2)}
               </div>
             </td>
+            <td></td>
             <td></td>
           </tr>
         </tbody>
@@ -626,42 +746,137 @@ function LaborTermCard({
 // ---------------------------------------------------------------------------
 // Empaquetado
 // ---------------------------------------------------------------------------
-function EmpaquetadoCard({ sheet }: { sheet: CostSheet }) {
+function EmpaquetadoCard({
+  sheet,
+  ov,
+  materials,
+  addedLines,
+  onQty,
+  onAddedLine,
+  onAddMaterial,
+  onRemove,
+}: {
+  sheet: CostSheet;
+  ov: Overrides;
+  materials: MaterialOption[];
+  addedLines: AddedLine[];
+  onQty: (itemId: number, v: string) => void;
+  onAddedLine: (key: number, patch: Partial<AddedLine>) => void;
+  onAddMaterial: (materialId: number) => void;
+  onRemove: (line: CostItemLine) => void;
+}) {
   const total = sheet.costs.packagingMicro;
+  const excluded = new Set<number>([
+    ...addedLines.map((a) => a.materialId),
+    ...sheet.ingredients.map((l) => l.rawMaterialId),
+    ...sheet.packaging.map((l) => l.rawMaterialId),
+  ]);
+  const available = materials.filter((m) => !excluded.has(m.id));
+  const addSelect = (label: string) => (
+    <div className="flex justify-center">
+      <select
+        className="h-8 w-56 rounded-md border border-dashed border-slate-300 px-2 text-[12px] text-slate-500 transition hover:border-sky-300 focus:border-sky-400"
+        value=""
+        onChange={(e) => {
+          if (e.target.value) onAddMaterial(Number(e.target.value));
+        }}
+      >
+        <option value="">{label}</option>
+        {available.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.name} <>({m.unitLabel})</>
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+  const emptyInfo = (
+    <div className="text-center text-[11px] font-medium text-slate-400">
+      Todos los materiales activos ya están en la ficha.
+    </div>
+  );
+
   return (
     <section className={`${CARD} p-5`}>
       <h2 className={CARD_TITLE}>Materiales de empaquetado</h2>
       {sheet.packaging.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className="mt-3 w-full min-w-[280px] text-[13px]">
+          <table className="mt-3 w-full min-w-[340px] text-[13px]">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-[12px] font-semibold text-slate-500">
-                <th className="pb-2">Material</th>
-                <th className="w-28 pb-2 text-right">Costo</th>
+              <tr className="border-b border-slate-200 text-center text-[12px] font-semibold text-slate-500">
+                <th className="pb-2 text-left">Material</th>
+                <th className="pb-2">Cant.</th>
+                <th className="pb-2">Costo</th>
+                <th className="w-8 pb-2"></th>
               </tr>
             </thead>
             <tbody>
               {sheet.packaging.map((l) => {
+                const isAdded = l.recipeItemId < 0;
+                const added = isAdded ? addedLines[-l.recipeItemId - 1] : undefined;
+                const qtyOv = ov.itemQty[l.recipeItemId];
+                const qty = isAdded
+                  ? (added?.qty !== "" && added ? added.qty : fmtQtyEs(l.qtyPerMicro))
+                  : qtyInputVal(l.qtyPerMicro, qtyOv);
                 return (
-                  <tr key={l.recipeItemId} className="border-b border-slate-100">
-                    <td className="max-w-[150px] truncate py-2 text-slate-700">{l.name}</td>
+                  <tr key={l.recipeItemId} className="border-b border-slate-100 text-center">
+                    <td className="max-w-[150px] py-2 text-left text-slate-700">
+                      {l.name}
+                      {isAdded && (
+                        <span className="ml-2 inline-block rounded-full bg-blue-50 px-1.5 text-[10px] font-semibold text-blue-700">
+                          Agregado
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2">
+                      <input
+                        className={`h-7 w-16 rounded-md px-1 text-center text-[12px] ${isAdded ? "border border-sky-200 bg-sky-50 text-[#2159c6]" : qtyOv !== undefined ? INPUT_OV_Q : "border border-slate-200"}`}
+                        inputMode="decimal"
+                        value={qty}
+                        onChange={(e) =>
+                          isAdded && added
+                            ? onAddedLine(added.key, { qty: e.target.value })
+                            : onQty(l.recipeItemId, e.target.value)
+                        }
+                      />
+                      <div className="text-[10px] text-slate-400">{l.unitId}/paquete</div>
+                    </td>
                     <td className="py-2 text-right font-semibold text-slate-700">
                       {fmtDec(l.costMicro, 2)}
+                    </td>
+                    <td className="py-2">
+                      <button
+                        className="mx-auto block text-slate-300 transition hover:text-red-500"
+                        title="Quitar de la ficha"
+                        onClick={() => onRemove(l)}
+                      >
+                        <X size={14} />
+                      </button>
                     </td>
                   </tr>
                 );
               })}
+              <tr className="border-b border-slate-200">
+                <td colSpan={4} className="py-2">
+                  {available.length > 0 ? addSelect("＋ Agregar empaque…") : emptyInfo}
+                </td>
+              </tr>
               <tr className="border-t border-slate-200">
                 <td className="py-2 font-bold text-slate-700">Total empaquetado</td>
+                <td></td>
                 <td className="py-2 text-right text-[15px] font-bold text-slate-800">
                   {fmtDec(total, 2)}
                 </td>
+                <td></td>
               </tr>
             </tbody>
           </table>
         </div>
       ) : (
-        <p className="mt-3 text-[13px] text-slate-400">Sin materiales de empaquetado en la receta.</p>
+        <>
+          <p className="mt-3 text-[13px] text-slate-400">Sin materiales de empaquetado en la ficha.</p>
+          <div className="mt-3">{available.length > 0 ? addSelect("＋ Agregar empaque…") : emptyInfo}</div>
+        </>
       )}
     </section>
   );
@@ -676,6 +891,10 @@ export function CostSheetsPage() {
   const [version, setVersion] = useState("");
   const [sheet, setSheet] = useState<CostSheet | null>(null);
   const [ov, setOv] = useState<Overrides>(emptyOv);
+  // Líneas eliminadas y agregadas de la simulación (editar la ficha).
+  const [removedIds, setRemovedIds] = useState<number[]>([]);
+  const [addedLines, setAddedLines] = useState<AddedLine[]>([]);
+  const addKey = useRef(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmModal, setConfirmModal] = useState(false);
@@ -683,6 +902,13 @@ export function CostSheetsPage() {
     { kind: "masa" | "terminacion"; id: number; name: string } | null
   >(null);
   const [rateVal, setRateVal] = useState("");
+  // Guardar la simulación en la receta (Actualizar receta).
+  const [updateModal, setUpdateModal] = useState(false);
+  const [savingRecipe, setSavingRecipe] = useState(false);
+  // Lanzar a producción/terminación con la simulación.
+  const [launchModal, setLaunchModal] = useState<"produccion" | "terminacion" | null>(null);
+  const pendingNav = useRef<"produccion" | "terminacion" | null>(null);
+  const nav = useNavigate();
   const seq = useRef(0);
 
   useEffect(() => {
@@ -701,13 +927,14 @@ export function CostSheetsPage() {
   const recalc = (
     v: string,
     o: Overrides,
+    lines: { removed: number[]; added: AddedLine[] },
     apply: (x: CostSheet) => void,
   ) => {
     if (!v) return;
     const s = ++seq.current;
     setBusy(true);
     api
-      .post<CostSheet>("/cost-sheets/preview", buildPayload(v, o))
+      .post<CostSheet>("/cost-sheets/preview", buildPayload(v, o, lines))
       .then((x) => {
         if (seq.current === s) {
           apply(x);
@@ -747,13 +974,22 @@ export function CostSheetsPage() {
       });
   }, [version]);
 
+  // Cambiar de receta o volver a elegir: la ficha nueva arranca limpia.
+  const selectVersion = (v: string) => {
+    setVersion(v);
+    setOv(emptyOv());
+    setRemovedIds([]);
+    setAddedLines([]);
+  };
+
   // Recalculo automático con los overrides (debounce tipo hoja de cálculo).
   useEffect(() => {
     if (!version) return;
-    const t = setTimeout(() => recalc(version, ov, setSheet), 350);
+    const lines = { removed: removedIds, added: addedLines };
+    const t = setTimeout(() => recalc(version, ov, lines, setSheet), 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, JSON.stringify(ov)]);
+  }, [version, JSON.stringify(ov), JSON.stringify(removedIds), JSON.stringify(addedLines)]);
 
   const setField = (f: keyof Omit<Overrides, "itemQty" | "itemSub" | "itemPrice">, v: string) =>
     setOv((o) => ({ ...o, [f]: v }));
@@ -809,6 +1045,166 @@ export function CostSheetsPage() {
     } catch (e) {
       setError((e as ApiError).message);
     }
+  };
+
+  // -----------------------------------------------------------------------
+  // Edición de líneas de la ficha (agregar / quitar)
+  // -----------------------------------------------------------------------
+  const addLine = (phase: "masa" | "paquete") => (materialId: number) =>
+    setAddedLines((a) => [
+      ...a,
+      { key: addKey.current++, materialId, phase, qty: "", price: "" },
+    ]);
+
+  const onAddedLine = (key: number, patch: Partial<AddedLine>) =>
+    setAddedLines((a) => a.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+
+  const removeLine = (l: CostItemLine) => {
+    if (l.recipeItemId < 0) {
+      // El id temporal depende del orden del arreglo, y el orden cambia al
+      // quitar: se identifica por material+phase (los selects no admiten
+      // materiales repetidos, así que es único).
+      setAddedLines((a) =>
+        a.filter((x) => !(x.materialId === l.rawMaterialId && x.phase === l.phase)),
+      );
+    } else {
+      setRemovedIds((r) => (r.includes(l.recipeItemId) ? r : [...r, l.recipeItemId]));
+    }
+  };
+
+  const dirty =
+    hasOv(ov) || removedIds.length > 0 || addedLines.length > 0;
+
+  // -----------------------------------------------------------------------
+  // Actualizar la receta con la simulación (sobrescribe la versión vigente)
+  // -----------------------------------------------------------------------
+  interface RecipeVersionInfo {
+    instructions: string | null;
+    notes: string | null;
+    validFrom: string;
+  }
+
+  /** Enteros sin float: micro_a × 1e6 ÷ micro_den (truncado). */
+  const divMicro = (num: number, den: number): number =>
+    Number(
+      (BigInt(Math.abs(Math.round(num))) * BigInt(MICRO)) /
+        BigInt(Math.max(1, Math.round(den))),
+    );
+
+  const doUpdateRecipe = async (): Promise<boolean> => {
+    if (!sheet || savingRecipe) return false;
+    const massesMicro = sheet.sim.massesMicro;
+    const pkgsMicro = sheet.sim.packagesMicro;
+    const yieldMicro = divMicro(pkgsMicro, massesMicro);
+    if (yieldMicro <= 0) {
+      setError(
+        "La ficha no tiene paquetes previstos (> 0). Ajuste los paquetes antes de actualizar la receta.",
+      );
+      return false;
+    }
+    // Cantidades por masa / por paquete desde la ficha simulada. Las líneas
+    // sustituidas se guardan en la unidad base del material sustituto.
+    const items: { name: string; rawMaterialId: number; unitId: string; qty: number; phase: "masa" | "paquete" }[] = [];
+    const collect = (lines: CostItemLine[], factorMicro: number): string | null => {
+      for (const l of lines) {
+        let unitId = l.unitId;
+        let qty = l.qtyPerMicro;
+        if (l.substituted) {
+          unitId = l.baseUnitId;
+          qty = divMicro(l.totalBaseMicro, factorMicro);
+        }
+        if (qty <= 0) {
+          return `La línea "${l.name}" queda con cantidad 0 por la unidad "${l.unitId}". Corrija la sustitución en la ficha antes de actualizar la receta.`;
+        }
+        items.push({ name: l.name, rawMaterialId: l.rawMaterialId, unitId, qty, phase: l.phase });
+      }
+      return null;
+    };
+    const errIngr = collect(sheet.ingredients, massesMicro);
+    if (errIngr) {
+      setError(errIngr);
+      return false;
+    }
+    const errPack = collect(sheet.packaging, pkgsMicro);
+    if (errPack) {
+      setError(errPack);
+      return false;
+    }
+    const seen = new Map<number, string>();
+    for (const it of items) {
+      if (seen.has(it.rawMaterialId)) {
+        setError(
+          `El material "${it.name}" quedaría repetido en la receta (ya está como "${seen.get(it.rawMaterialId)}"). Revise sustituciones y líneas agregadas.`,
+        );
+        return false;
+      }
+      seen.set(it.rawMaterialId, it.name);
+    }
+    setSavingRecipe(true);
+    try {
+      const vinfo = await api.get<RecipeVersionInfo>(`/recipe-versions/${sheet.recipeVersionId}`);
+      await api.put(`/recipes/${sheet.recipeId}`, {
+        name: currentRecipe?.name ?? sheet.recipeName,
+        description: currentRecipe?.description ?? null,
+        version: {
+          massId: sheet.massId,
+          expectedYield: yieldMicro,
+          yieldUnitId: sheet.saleUnitId,
+          instructions: vinfo.instructions,
+          validFrom: vinfo.validFrom,
+          notes: vinfo.notes,
+          items: items.map(({ name, ...rest }) => rest),
+        },
+      });
+      setUpdateModal(false);
+      setLaunchModal(null);
+      setOv(emptyOv());
+      setRemovedIds([]);
+      setAddedLines([]);
+      const target = pendingNav.current;
+      pendingNav.current = null;
+      if (target) navigateTo(target);
+      // La receta cambió (rendimiento/nombre): refrescar la lista.
+      api
+        .get<RecipeOption[]>("/recipes")
+        .then((rs) =>
+          setRecipes(rs.filter((r) => r.active && r.versionId != null && r.productId != null)),
+        )
+        .catch(() => undefined);
+      return true;
+    } catch (e) {
+      setError((e as ApiError).message);
+      return false;
+    } finally {
+      setSavingRecipe(false);
+    }
+  };
+
+  // -----------------------------------------------------------------------
+  // Lanzar la simulación a producción / terminación
+  // -----------------------------------------------------------------------
+  const navigateTo = (target: "produccion" | "terminacion"): void => {
+    if (!sheet) return;
+    const massesQty = microToDecimalTrim(sheet.sim.massesMicro, 3);
+    if (target === "produccion") {
+      nav(
+        `/produccion/producciones?recipeVersionId=${sheet.recipeVersionId}&masses=${massesQty}`,
+      );
+    } else {
+      nav(
+        `/produccion/transformacion?recipeVersionId=${sheet.recipeVersionId}&massQty=${massesQty}&outputQty=${microToDecimalTrim(sheet.sim.packagesMicro, 3)}`,
+      );
+    }
+  };
+
+  const startLaunch = (target: "produccion" | "terminacion") => {
+    if (!sheet) return;
+    if (!dirty) {
+      navigateTo(target);
+      return;
+    }
+    pendingNav.current = target;
+    setLaunchModal(target);
   };
 
   // Selección actual (receta + producto + masa) desde el select principal.
@@ -870,7 +1266,7 @@ export function CostSheetsPage() {
           <p className="text-[13px] text-slate-500">
             Seleccione una receta para generar su ficha de costo.
           </p>
-          <select value="" onChange={(e) => setVersion(e.target.value)} className={`${INPUT} mx-auto mt-4 w-72`}>
+          <select value="" onChange={(e) => selectVersion(e.target.value)} className={`${INPUT} mx-auto mt-4 w-72`}>
             <option value="">Producto / receta (versión vigente)</option>
             {recipes.map((r) => (
               <option key={r.id} value={String(r.versionId)}>
@@ -905,7 +1301,7 @@ export function CostSheetsPage() {
                 <select
                   className={`${INPUT} max-w-[200px]`}
                   value={version}
-                  onChange={(e) => setVersion(e.target.value)}
+                  onChange={(e) => selectVersion(e.target.value)}
                 >
                 {recipes.map((r) => (
                   <option key={r.id} value={String(r.versionId)}>
@@ -978,10 +1374,25 @@ export function CostSheetsPage() {
             </div>
 
             <div className="ml-auto flex items-center gap-2">
+              <button
+                className={BTN_SOFT}
+                disabled={!sheet || sheet.sim.packagesMicro <= 0}
+                title={
+                  sheet && sheet.sim.packagesMicro <= 0
+                    ? "La ficha no tiene paquetes previstos (> 0)"
+                    : "Guardar esta ficha en la receta vigente"
+                }
+                onClick={() => setUpdateModal(true)}
+              >
+                <Save size={14} /> Actualizar receta
+              </button>
               <button className={BTN_SOFT} onClick={resetSheet}>
                 <RotateCcw size={14} /> Restablecer ficha
               </button>
-              <button className={BTN_PRIMARY} onClick={() => recalc(version, ov, setSheet)}>
+              <button
+                className={BTN_PRIMARY}
+                onClick={() => recalc(version, ov, { removed: removedIds, added: addedLines }, setSheet)}
+              >
                 <Table2 size={14} /> Simular cambios
               </button>
             </div>
@@ -995,9 +1406,13 @@ export function CostSheetsPage() {
                   sheet={sheet}
                   ov={ov}
                   materials={materials}
+                  addedLines={addedLines}
                   onQty={setQty}
                   onSub={setSub}
                   onPrice={setPrice}
+                  onAddedLine={onAddedLine}
+                  onAddMaterial={addLine("masa")}
+                  onRemove={removeLine}
                 />
               ) : (
                 <div className={`${CARD} p-8 text-center text-[13px] text-slate-400`}>
@@ -1028,7 +1443,16 @@ export function CostSheetsPage() {
                         })
                       }
                     />
-                    <EmpaquetadoCard sheet={sheet} />
+                    <EmpaquetadoCard
+                      sheet={sheet}
+                      ov={ov}
+                      materials={materials}
+                      addedLines={addedLines}
+                      onQty={setQty}
+                      onAddedLine={onAddedLine}
+                      onAddMaterial={addLine("paquete")}
+                      onRemove={removeLine}
+                    />
                   </>
                 )}
 
@@ -1185,7 +1609,7 @@ export function CostSheetsPage() {
                     </div>
                     <button
                       className={`${BTN_PRIMARY} mt-4 w-full justify-center py-2.5 text-[14px]`}
-                      onClick={() => recalc(version, ov, setSheet)}
+                      onClick={() => recalc(version, ov, { removed: removedIds, added: addedLines }, setSheet)}
                     >
                       <Table2 size={15} /> Simular cambios
                     </button>
@@ -1248,6 +1672,27 @@ export function CostSheetsPage() {
                     oficial ni el inventario.
                   </p>
                 </div>
+
+                {sheet && (
+                  <div className="mt-4">
+                    <button
+                      className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-sky-100 bg-sky-50 px-4 text-[13px] font-semibold text-[#1355d9] transition hover:bg-sky-100"
+                      onClick={() => startLaunch("produccion")}
+                    >
+                      <Factory size={14} /> Lanzar a producción (masas)
+                    </button>
+                    <button
+                      className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-md border border-sky-100 bg-sky-50 px-4 text-[13px] font-semibold text-[#1355d9] transition hover:bg-sky-100"
+                      onClick={() => startLaunch("terminacion")}
+                    >
+                      <Boxes size={14} /> Lanzar a terminación
+                    </button>
+                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                      Se abrirá el formulario con los valores simulados ({fmtQtyEs(sheet.sim.massesMicro)} masas →{" "}
+                      {fmtWhole(sheet.sim.packagesMicro)} paquetes). Puede ajustar las cantidades reales antes de confirmar.
+                    </p>
+                  </div>
+                )}
               </div>
             </aside>
           </div>
@@ -1278,6 +1723,110 @@ export function CostSheetsPage() {
             </button>
             <button className="btn btn-danger" onClick={doReset}>
               Restablecer
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal Actualizar receta */}
+      {updateModal && sheet && (
+        <Modal
+          title={`Actualizar receta — ${sheet.recipeName} v${sheet.version}`}
+          onClose={() => {
+            if (!savingRecipe) setUpdateModal(false);
+          }}
+        >
+          <p className="text-sm text-slate-600">
+            Se guardará el estado actual de la ficha en la versión vigente de la receta
+            <strong> {sheet.recipeName} v{sheet.version}</strong>:
+          </p>
+          <ul className="mt-2 list-inside list-disc py-1 text-sm text-slate-600">
+            <li>
+              Ingredientes de masa: {sheet.ingredients.length} en la ficha
+              {addedLines.filter((a) => a.phase === "masa").length > 0
+                ? ` (${addedLines.filter((a) => a.phase === "masa").length} agregados)`
+                : ""}
+              .
+            </li>
+            <li>
+              Empaquetado: {sheet.packaging.length} en la ficha
+              {addedLines.filter((a) => a.phase === "paquete").length > 0
+                ? ` (${addedLines.filter((a) => a.phase === "paquete").length} agregados)`
+                : ""}
+              .
+            </li>
+            {removedIds.length > 0 && <li>Eliminados de la receta: {removedIds.length} línea(s).</li>}
+          </ul>
+          <div className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            Rendimiento por masa:{" "}
+            <strong>
+              {fmtQtyEs(divMicro(sheet.sim.packagesMicro, sheet.sim.massesMicro))} {sheet.saleUnitId}
+            </strong>{" "}
+            (paquetes previstos ÷ masas). Los <strong>precios NO se guardan</strong>: al producir se
+            toman del inventario (PEPS). Las sustituciones se guardan como el material efectivo, en
+            su unidad base.
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              className="btn btn-secondary"
+              disabled={savingRecipe}
+              onClick={() => setUpdateModal(false)}
+            >
+              Cancelar
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={savingRecipe}
+              onClick={doUpdateRecipe}
+            >
+              {savingRecipe ? "Guardando..." : "Guardar cambios en la receta"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal Lanzar la simulación (con cambios sin guardar) */}
+      {launchModal && sheet && (
+        <Modal
+          title="Cambios sin guardar"
+          onClose={() => {
+            pendingNav.current = null;
+            setLaunchModal(null);
+          }}
+        >
+          <p className="text-sm text-slate-600">
+            Esta simulación tiene cambios sin guardar en la receta{" "}
+            <strong>{sheet.recipeName} v{sheet.version}</strong>. ¿Aplicarlos a la receta antes de
+            continuar?
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                pendingNav.current = null;
+                setLaunchModal(null);
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              className="btn btn-secondary"
+              disabled={savingRecipe}
+              onClick={() => {
+                const target = launchModal;
+                pendingNav.current = null;
+                setLaunchModal(null);
+                navigateTo(target);
+              }}
+            >
+              Continuar sin guardar
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={savingRecipe}
+              onClick={doUpdateRecipe}
+            >
+              {savingRecipe ? "Guardando..." : "Aplicar a la receta y continuar"}
             </button>
           </div>
         </Modal>

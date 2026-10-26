@@ -465,6 +465,92 @@ describe("Fichas de costo — datos intactos (Pruebas G/H/I)", () => {
   });
 });
 
+describe("Fichas de costo — agregar y quitar líneas (simulación)", () => {
+  it("Agregar ingrediente: azúcar 2 kg/masa → 8 kg en 4 masas a precio promedio", () => {
+    const h = setupSpec();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({
+        recipeVersionId: h.versionId,
+        masses: "4",
+        addItems: [{ materialId: h.azucarId, qty: "2", phase: "masa" }],
+      }),
+    );
+    expect(sheet.ingredients).toHaveLength(2);
+    const added = sheet.ingredients.find((l) => l.recipeItemId === -1)!;
+    expect(added).toBeDefined();
+    expect(added.name).toBe("Azúcar");
+    expect(added.unitId).toBe("kg"); // línea nueva en unidad base del material
+    expect(added.totalItemUnitMicro).toBe(8_000_000); // 2 × 4 masas
+    expect(added.priceBasis).toBe("promedio");
+    expect(added.pricePerBaseMicro).toBe(20_000_000);
+    expect(added.costMicro).toBe(160_000_000); // 8 kg × 20 CUP
+    expect(sheet.costs.ingredientsMicro).toBe(960_000_000 + 160_000_000);
+  });
+
+  it("Línea agregada acepta precio manual con id temporal negativo", () => {
+    const h = setupSpec();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({
+        recipeVersionId: h.versionId,
+        masses: "4",
+        addItems: [{ materialId: h.azucarId, qty: "2", phase: "masa" }],
+        items: [{ id: -1, unitPrice: "50" }],
+      }),
+    );
+    const added = sheet.ingredients.find((l) => l.recipeItemId === -1)!;
+    expect(added.priceBasis).toBe("manual");
+    expect(added.pricePerBaseMicro).toBe(50_000_000);
+    expect(added.costMicro).toBe(400_000_000); // 8 kg × 50 CUP
+  });
+
+  it("Quitar el único ingrediente de masa: la ficha se rechaza", () => {
+    const h = setupSpec();
+    const itemId = detailId(h);
+    expect(() =>
+      previewCostSheet(
+        h.h.db,
+        h.h.units,
+        costSheetInput.parse({ recipeVersionId: h.versionId, removedIds: [itemId] }),
+      ),
+    ).toThrow();
+  });
+
+  it("Quitar el empaque: packaging vacío y costo 0", () => {
+    const h = setupSpec();
+    const pkgId = getCostSheet(h.h.db, h.h.units, h.versionId).packaging[0].recipeItemId;
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, masses: "4", removedIds: [pkgId] }),
+    );
+    expect(sheet.packaging).toHaveLength(0);
+    expect(sheet.costs.packagingMicro).toBe(0);
+  });
+
+  it("Agregar empaque nuevo (fase paquete) y quitar el original", () => {
+    const h = setupSpec();
+    const pkgId = getCostSheet(h.h.db, h.h.units, h.versionId).packaging[0].recipeItemId;
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({
+        recipeVersionId: h.versionId,
+        masses: "4", // 80 paquetes
+        removedIds: [pkgId],
+        addItems: [{ materialId: h.bolsaId, qty: "1.5", phase: "paquete" }],
+      }),
+    );
+    expect(sheet.packaging).toHaveLength(1);
+    expect(sheet.packaging[0].recipeItemId).toBe(-1);
+    expect(sheet.packaging[0].totalItemUnitMicro).toBe(120_000_000); // 1,5 × 80
+    expect(sheet.costs.packagingMicro).toBe(240_000_000); // 120 bolsas × 2 CUP
+  });
+});
+
 describe("Fichas de costo — ficha base y tarifas", () => {
   it("GET base: defaults = 1 masa, paquetes = rendimiento, tarifas pre-cargadas", () => {
     const h = setupSpec();

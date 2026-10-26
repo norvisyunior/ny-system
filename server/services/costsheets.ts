@@ -63,10 +63,23 @@ export const costSheetInput = zr.object({
   items: zr
     .array(
       zr.object({
-        id: zr.number().int().positive("Ítem inválido."),
+        id: zr.number().int("Ítem inválido."),
         qty: decMicro().optional(),
         materialId: zr.number().int().positive().optional(),
         unitPrice: decMicro().optional(),
+      }),
+    )
+    .optional(),
+  // Ítems de receta eliminados en la simulación (solo ficha; no toca la receta).
+  removedIds: zr.array(zr.number().int().positive()).optional(),
+  // Líneas nuevas de la simulación: material + cantidad (id temporal negativo
+  // asignado por el frontend para referenciarlas en items).
+  addItems: zr
+    .array(
+      zr.object({
+        materialId: zr.number().int().positive("Material requerido."),
+        qty: decMicro({ minExclusive: true }).optional(),
+        phase: zr.enum(["masa", "paquete"]).default("masa"),
       }),
     )
     .optional(),
@@ -198,6 +211,8 @@ interface BuildOpts {
   itemQty?: Map<number, number>;
   itemMaterial?: Map<number, number>;
   itemPrice?: Map<number, number>;
+  removedIds?: Set<number>;
+  addedItems?: { materialId: number; qtyMicro: number; phase: "masa" | "paquete" }[];
 }
 
 /** Mismo catálogo de unidades: compatible si la dimensión coincide y,
@@ -286,22 +301,47 @@ function buildCostSheet(
     );
   }
 
-  const itemRows = tx
+  const itemRowsRaw = tx
     .select()
     .from(recipeItems)
     .where(eq(recipeItems.recipeVersionId, recipeVersionId))
     .orderBy(asc(recipeItems.id))
     .all();
-  const itemsById = new Map(itemRows.map((i) => [i.id, i]));
-  for (const [iid] of opts.itemQty ?? new Map<number, number>()) {
-    if (!itemsById.has(iid)) throw domainError(`El ítem ${iid} no pertenece a la receta.`);
-  }
-  for (const [iid] of opts.itemMaterial ?? new Map<number, number>()) {
-    if (!itemsById.has(iid)) throw domainError(`El ítem ${iid} no pertenece a la receta.`);
-  }
+  const itemsById = new Map(itemRowsRaw.map((i) => [i.id, i]));
 
   // Materias primas + último precio de compra confirmado (criterio actual del sistema).
   const matById = new Map(tx.select().from(rawMaterials).all().map((m) => [m.id, m]));
+
+  // Ítems eliminados en la simulación (solo de la vista: nunca toca la receta).
+  const removed = opts.removedIds ?? new Set<number>();
+  const itemRows = itemRowsRaw.filter((i) => !removed.has(i.id));
+
+  // Líneas nuevas de la simulación: material elegido + cantidad (id temporal
+  // negativo), expresadas en la unidad base del material.
+  const addedRows: (typeof recipeItems.$inferSelect)[] = [];
+  for (let i = 0; i < (opts.addedItems?.length ?? 0); i++) {
+    const add = opts.addedItems![i];
+    const mat = matById.get(add.materialId);
+    if (!mat) throw notFoundError("Materia prima agregada");
+    if (!mat.active) {
+      throw domainError(`El material "${mat.name}" está inactivo y no puede agregarse.`);
+    }
+    addedRows.push({
+      id: -(i + 1),
+      recipeVersionId: 0,
+      rawMaterialId: mat.id,
+      unitId: mat.unitId,
+      qtyMicro: add.qtyMicro > 0 ? add.qtyMicro : 1_000_000,
+      phase: add.phase,
+    });
+  }
+
+  for (const [iid] of opts.itemQty ?? new Map<number, number>()) {
+    if (iid >= 0 && !itemsById.has(iid)) throw domainError(`El ítem ${iid} no pertenece a la receta.`);
+  }
+  for (const [iid] of opts.itemMaterial ?? new Map<number, number>()) {
+    if (iid >= 0 && !itemsById.has(iid)) throw domainError(`El ítem ${iid} no pertenece a la receta.`);
+  }
   const lastByMat = new Map(
     listMaterials(tx, {}).map((m) => [m.id, m.lastPrice] as const),
   );
@@ -468,14 +508,14 @@ function buildCostSheet(
   const ingredients: CostItemLine[] = [];
   const packaging: CostItemLine[] = [];
   let hasMissingPrice = false;
-  for (const item of itemRows) {
+  for (const item of [...itemRows, ...addedRows]) {
     const line = buildLine(item);
     if (line.pricePerBaseMicro == null) hasMissingPrice = true;
     if (line.phase === "masa") ingredients.push(line);
     else packaging.push(line);
   }
   if (ingredients.length === 0) {
-    throw domainError("La versión de la receta no tiene ingredientes por masa.");
+    throw domainError("La ficha no tiene ingredientes de masa desde los que calcular el costo.");
   }
 
   let ingredientsMicro = 0;
@@ -632,6 +672,12 @@ export function previewCostSheet(
         .filter((i) => i.unitPrice !== undefined)
         .map((i) => [i.id, i.unitPrice as number]),
     ),
+    removedIds: new Set(input.removedIds ?? []),
+    addedItems: (input.addItems ?? []).map((a) => ({
+      materialId: a.materialId,
+      qtyMicro: a.qty && a.qty > 0 ? a.qty : 1_000_000, // sin cantidad → 1 unidad base
+      phase: a.phase,
+    })),
   });
 }
 
