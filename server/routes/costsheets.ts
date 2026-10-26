@@ -9,7 +9,7 @@ import { handle, idParam } from "./helpers";
 export const costSheetsRouter = Router();
 
 // Ficha base del producto asociado a la versión de receta (sin overrides).
-costSheetsRouter.get("/:recipeVersionId", (req, res) => {
+costSheetsRouter.get("/:id", (req, res) => {
   const { id } = idParam.parse(req.params);
   const h = handle(req);
   res.json({ ok: true, data: getCostSheet(h.db, h.units, id) });

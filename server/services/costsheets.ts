@@ -28,9 +28,14 @@ import {
 } from "../domain/costsheets";
 import type { DBOrTx } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
+import { microToDecimalTrim } from "../../shared/money";
 import { listMaterials } from "./materials";
 
 const MICRO = 1_000_000;
+
+// Límite sanidad del rendimiento por masa (paquetes): 1000 paquetes choque con
+// erros de escritura (p. ej. cantidades cargadas en micro sin convertir).
+export const MAX_YIELD_PER_MASS_MICRO = 1_000_000_000;
 
 // ---------------------------------------------------------------------------
 // Entrada de la simulación
@@ -41,6 +46,12 @@ export const costSheetInput = zr.object({
   masses: decMicro({ minExclusive: true }).optional(),
   // Paquetes previstos (0 permitido → sin costo por paquete).
   packages: decMicro().optional(),
+  // Rendimiento simulado (> 0): paquetes por masa. Ausente → el de la receta.
+  yield: decMicro({
+    minExclusive: true,
+    max: MAX_YIELD_PER_MASS_MICRO,
+    maxLabel: "paquetes por masa",
+  }).optional(),
   unitsPerPackage: zr
     .number()
     .int()
@@ -203,6 +214,8 @@ export interface CostSheet {
 interface BuildOpts {
   massesMicro?: number;
   packagesMicro?: number;
+  // Rendimiento simulado (paquetes por masa). Ausente → el de la receta.
+  yieldMicro?: number;
   unitsPerPackage?: number;
   salePriceMicro?: number;
   marginTargetPctMicro?: number;
@@ -355,11 +368,24 @@ function buildCostSheet(
   // --- Parámetros de la simulación (respaldo = ficha original) ---
   // Si solo se indican masas → paquetes derivados (masas × rendimiento).
   // Si solo se indican paquetes → masas derivadas (techo, como los planes).
-  const expectedYield = BigInt(row.expectedYieldMicro);
+  const yieldMicro = opts.yieldMicro ?? row.expectedYieldMicro;
+  if (yieldMicro <= 0 || yieldMicro > MAX_YIELD_PER_MASS_MICRO) {
+    const grande = microToDecimalTrim(yieldMicro, 3);
+    throw domainError(
+      yieldMicro <= 0
+        ? "El rendimiento no puede ser cero: edite la receta o la simulación."
+        : `El rendimiento (${grande} paquetes por masa) es irreal (máximo 1000): revísalo.`,
+    );
+  }
+  const expectedYield = BigInt(yieldMicro);
   const packagesForMasses = (m: number): number =>
     Number(divRoundAway(BigInt(m) * expectedYield, BigInt(MICRO)));
+  // Masas derivadas: techo(p ÷ y) en unidades y luego × MICRO (las masas van
+  // siempre en micro-unidades; permite decimales como el resto de la ficha).
   const massesForPackages = (p: number): number =>
-    p <= 0 ? 1 : Number((BigInt(p) + expectedYield - 1n) / expectedYield);
+    p <= 0
+      ? MICRO
+      : Number((BigInt(Math.trunc(p)) + expectedYield - 1n) / expectedYield) * MICRO;
   let massesMicro: number;
   let packagesMicro: number;
   if (opts.massesMicro != null) {
@@ -591,7 +617,7 @@ function buildCostSheet(
       massesMicro,
       packagesMicro,
       expectedPackagesMicro: Number(
-        divRoundAway(BigInt(massesMicro) * BigInt(row.expectedYieldMicro), BigInt(MICRO)),
+        divRoundAway(BigInt(massesMicro) * BigInt(yieldMicro), BigInt(MICRO)),
       ),
       unitsPerPackage,
       unitsTotalMicro,
@@ -652,6 +678,7 @@ export function previewCostSheet(
   return buildCostSheet(db, catalog, input.recipeVersionId, {
     massesMicro: input.masses,
     packagesMicro: input.packages,
+    yieldMicro: input.yield,
     unitsPerPackage: input.unitsPerPackage,
     salePriceMicro: input.salePrice,
     marginTargetPctMicro: input.marginTargetPct,

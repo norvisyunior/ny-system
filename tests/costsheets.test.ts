@@ -577,3 +577,52 @@ describe("Fichas de costo — ficha base y tarifas", () => {
     expect(rows.some((r) => r.kind === "terminacion" && r.rateMicro === 2_000_000)).toBe(true);
   });
 });
+
+describe("Fichas de costo — rendimiento editable", () => {
+  it("Rendimiento simulado con masas fijadas: paquetes = masas × rendimiento sim", () => {
+    const h = setupSpec();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, masses: "2", yield: "25" }),
+    );
+    expect(sheet.sim.packagesMicro).toBe(50_000_000); // 2 × 25
+    expect(sheet.sim.expectedPackagesMicro).toBe(50_000_000);
+    // La receta queda intacta y mantiene su rendimiento
+    expect(sheet.expectedYieldMicro).toBe(20_000_000);
+    // empaques siguen el nuevo total: 50 × 2 bolsas × 2 CUP = 200 CUP
+    expect(sheet.costs.packagingMicro).toBe(200_000_000);
+  });
+
+  it("Rendimiento simulado con paquetes fijados: masas = techo(p ÷ y)", () => {
+    const h = setupSpec();
+    // 45 ÷ 25 = 1,8 → 2 masas
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, packages: "45", yield: "25" }),
+    );
+    expect(sheet.sim.massesMicro).toBe(2_000_000);
+    expect(sheet.sim.packagesMicro).toBe(45_000_000);
+  });
+
+  it("Sin override de rendimiento usa el de la receta", () => {
+    const h = setupSpec();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, masses: "2" }),
+    );
+    expect(sheet.sim.packagesMicro).toBe(40_000_000); // 2 × 20
+  });
+
+  it("Rendimiento irreal (0 o > 1000) se rechaza en la validación", () => {
+    const h = setupSpec();
+    expect(() =>
+      costSheetInput.parse({ recipeVersionId: h.versionId, yield: "2000" }),
+    ).toThrow();
+    expect(() =>
+      costSheetInput.parse({ recipeVersionId: h.versionId, yield: "0" }),
+    ).toThrow();
+  });
+});

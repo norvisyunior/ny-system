@@ -12,6 +12,7 @@ import { z } from "zod";
 import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
 import { decMicro } from "../domain/zod-helpers";
+import { MAX_YIELD_PER_MASS_MICRO } from "./costsheets";
 import type { DBOrTx } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
 
@@ -21,7 +22,13 @@ export type RecipePhase = (typeof RECIPE_PHASES)[number];
 const recipeItemInput = z.object({
   rawMaterialId: z.number().int().positive("Material requerido."),
   unitId: z.string().min(1, "Unidad requerida."),
-  qty: decMicro({ minExclusive: true }),
+  // Máx. 1000 unidades base por masa/paquete: bloquea cantidades cargadas
+  // por error en micro (×1.000.000) o fuera de todo rango de receta.
+  qty: decMicro({
+    minExclusive: true,
+    max: 1_000_000_000,
+    maxLabel: "unidades base",
+  }),
   // 'masa' = cantidad por masa (se consume al elaborar);
   // 'paquete' = cantidad por paquete (se consume al terminar/empaquetar).
   phase: z.enum(["masa", "paquete"]).default("masa"),
@@ -29,7 +36,12 @@ const recipeItemInput = z.object({
 
 export const versionInput = z.object({
   massId: z.number().int().positive("Masa requerida."),
-  expectedYield: decMicro({ minExclusive: true }),
+  // Máx. 1000 paquetes por masa (coincide con el guardia de fichas de costo).
+  expectedYield: decMicro({
+    minExclusive: true,
+    max: MAX_YIELD_PER_MASS_MICRO,
+    maxLabel: "paquetes por masa",
+  }),
   yieldUnitId: z.string().min(1, "Unidad de rendimiento requerida."),
   instructions: z.string().trim().max(2000).optional().nullable(),
   validFrom: z.string().min(1, "Fecha de vigencia requerida."),

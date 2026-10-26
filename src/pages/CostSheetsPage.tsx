@@ -10,11 +10,11 @@ import {
   Info,
   RotateCcw,
   Save,
-  Table2,
   X,
 } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { ErrorAlert, Modal, Badge } from "../components/ui";
+import { divRoundAway } from "@shared/money";
 
 // ---------------------------------------------------------------------------
 // Tipos (espejo de la respuesta del backend)
@@ -149,7 +149,7 @@ interface MaterialOption {
 // Tokens del mock (fichadecosto.png)
 // ---------------------------------------------------------------------------
 const CARD =
-  "rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(16,24,40,0.05)]";
+  "min-w-0 rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(16,24,40,0.05)]";
 const CARD_TITLE = "text-[15px] font-bold text-slate-800";
 const INPUT =
   "h-9 rounded-md border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100";
@@ -158,8 +158,6 @@ const INPUT_OV =
 const INPUT_OV_Q =
   "border border-amber-300 bg-amber-50 text-slate-800 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100";
 const INPUT_OV_P = INPUT_OV_Q;
-const BTN_PRIMARY =
-  "inline-flex h-9 items-center gap-2 rounded-md bg-[#1355d9] px-4 text-[13px] font-semibold text-white shadow-sm transition hover:bg-[#1149ba] disabled:opacity-60";
 const BTN_SOFT =
   "inline-flex h-9 items-center gap-2 rounded-md border border-sky-100 bg-sky-50 px-4 text-[13px] font-semibold text-[#1355d9] transition hover:bg-sky-100";
 const GREEN_BG = "#e9f7f0";
@@ -196,7 +194,13 @@ function fmtDec(micro: number, decimals: number): string {
 }
 
 const fmtCup = (micro: number | null | undefined): string =>
-  micro == null ? "—" : `${fmtDec(micro, 2)} CUP`;
+  micro == null || micro === undefined ? "—" : `${fmtDec(micro, 2)} CUP`;
+
+/** Divide micro-CUP por unidades individuales (misma escala, sin re-multiplicar). */
+const cupPerUnit = (micro: number | null | undefined, upp: number): string =>
+  micro == null || micro === undefined || upp <= 0
+    ? "—"
+    : fmtCup(Number(divRoundAway(BigInt(Math.trunc(micro)), BigInt(Math.trunc(upp)))));
 
 /** Cantidades: hasta 3 decimales, sin ceros de sobra y sin decimales si es entera. */
 const fmtQtyEs = (micro: number): string => {
@@ -255,6 +259,7 @@ const decOrNull = (s: string): number | null => {
 interface Overrides {
   masses: string;
   packages: string;
+  yield: string;
   unitsPerPackage: string;
   salePrice: string;
   marginTargetPct: string;
@@ -268,6 +273,7 @@ interface Overrides {
 const emptyOv = (): Overrides => ({
   masses: "",
   packages: "",
+  yield: "",
   unitsPerPackage: "",
   salePrice: "",
   marginTargetPct: "30",
@@ -301,6 +307,8 @@ function buildPayload(
   };
   setDec("masses", ov.masses);
   setDec("packages", ov.packages);
+  // Rendimiento simulado (paquetes por masa); vacío → el de la receta.
+  setDec("yield", ov.yield);
   const upp = decOrNull(ov.unitsPerPackage);
   if (upp != null && Number.isInteger(upp) && upp >= 1) input.unitsPerPackage = upp;
   setDec("salePrice", ov.salePrice);
@@ -354,6 +362,7 @@ function buildPayload(
 const hasOv = (ov: Overrides): boolean =>
   ov.masses !== "" ||
   ov.packages !== "" ||
+  ov.yield !== "" ||
   ov.unitsPerPackage !== "" ||
   ov.salePrice !== "" ||
   (decOrNull(ov.marginTargetPct) ?? 30) !== 30 ||
@@ -654,14 +663,17 @@ function LaborElabCard({
           <select className={`${INPUT} w-full min-w-0`} value={d.massName} disabled>
             <option>{d.massName}</option>
           </select>
-          {missing && (
-            <button
-              className="mt-2 text-[11px] font-semibold text-[#b45309] underline"
-              onClick={onConfigure}
-            >
-              Configurar tarifa
-            </button>
-          )}
+          <button
+            className={`mt-2 text-[11px] font-semibold underline ${
+              missing ? "text-[#b45309]" : "text-slate-500"
+            }`}
+            onClick={onConfigure}
+          >
+            {missing ? "Configurar tarifa (falta para el cálculo)" : "Configurar tarifa"}
+          </button>
+          <div className="mt-1 text-[10px] text-slate-400">
+            Si escribes aquí arriba es una tarifa simulada (no se guarda).
+          </div>
         </div>
         <div className="min-w-[140px] flex-1">
           <div className="mb-1.5 text-[12px] font-medium text-slate-600">Tarifa por masa</div>
@@ -707,14 +719,17 @@ function LaborTermCard({
           <select className={`${INPUT} w-full min-w-0`} value={d.productName} disabled>
             <option>{d.productName}</option>
           </select>
-          {missing && (
-            <button
-              className="mt-2 text-[11px] font-semibold text-[#b45309] underline"
-              onClick={onConfigure}
-            >
-              Configurar tarifa
-            </button>
-          )}
+          <button
+            className={`mt-2 text-[11px] font-semibold underline ${
+              missing ? "text-[#b45309]" : "text-slate-500"
+            }`}
+            onClick={onConfigure}
+          >
+            {missing ? "Configurar tarifa (falta para el cálculo)" : "Configurar tarifa"}
+          </button>
+          <div className="mt-1 text-[10px] text-slate-400">
+            Si escribes aquí arriba es una tarifa simulada (no se guarda).
+          </div>
         </div>
         <div className="min-w-[140px] flex-1">
           <div className="mb-1.5 text-[12px] font-medium text-slate-600">
@@ -773,9 +788,9 @@ function EmpaquetadoCard({
   ]);
   const available = materials.filter((m) => !excluded.has(m.id));
   const addSelect = (label: string) => (
-    <div className="flex justify-center">
+    <div className="flex w-full">
       <select
-        className="h-8 w-56 rounded-md border border-dashed border-slate-300 px-2 text-[12px] text-slate-500 transition hover:border-sky-300 focus:border-sky-400"
+        className="h-8 w-full min-w-0 max-w-[240px] rounded-md border border-dashed border-slate-300 px-2 text-[12px] text-slate-500 transition hover:border-sky-300 focus:border-sky-400"
         value=""
         onChange={(e) => {
           if (e.target.value) onAddMaterial(Number(e.target.value));
@@ -801,13 +816,13 @@ function EmpaquetadoCard({
       <h2 className={CARD_TITLE}>Materiales de empaquetado</h2>
       {sheet.packaging.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className="mt-3 w-full min-w-[340px] text-[13px]">
+          <table className="mt-3 w-full table-fixed text-[13px]">
             <thead>
               <tr className="border-b border-slate-200 text-center text-[12px] font-semibold text-slate-500">
                 <th className="pb-2 text-left">Material</th>
                 <th className="pb-2">Cant.</th>
                 <th className="pb-2">Costo</th>
-                <th className="w-8 pb-2"></th>
+                <th className="w-7 pb-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -820,17 +835,17 @@ function EmpaquetadoCard({
                   : qtyInputVal(l.qtyPerMicro, qtyOv);
                 return (
                   <tr key={l.recipeItemId} className="border-b border-slate-100 text-center">
-                    <td className="max-w-[150px] py-2 text-left text-slate-700">
+                    <td className="min-w-0 truncate py-1.5 text-left text-slate-700" title={l.name}>
                       {l.name}
                       {isAdded && (
-                        <span className="ml-2 inline-block rounded-full bg-blue-50 px-1.5 text-[10px] font-semibold text-blue-700">
+                        <span className="ml-2 inline-block w-max overflow-visible whitespace-nowrap rounded-full bg-blue-50 px-1.5 text-[10px] font-semibold text-blue-700">
                           Agregado
                         </span>
                       )}
                     </td>
-                    <td className="py-2">
+                    <td className="w-24 py-1.5">
                       <input
-                        className={`h-7 w-16 rounded-md px-1 text-center text-[12px] ${isAdded ? "border border-sky-200 bg-sky-50 text-[#2159c6]" : qtyOv !== undefined ? INPUT_OV_Q : "border border-slate-200"}`}
+                        className={`h-7 w-full rounded-md px-1 text-center text-[12px] ${isAdded ? "border border-sky-200 bg-sky-50 text-[#2159c6]" : qtyOv !== undefined ? INPUT_OV_Q : "border border-slate-200"}`}
                         inputMode="decimal"
                         value={qty}
                         onChange={(e) =>
@@ -841,10 +856,10 @@ function EmpaquetadoCard({
                       />
                       <div className="text-[10px] text-slate-400">{l.unitId}/paquete</div>
                     </td>
-                    <td className="py-2 text-right font-semibold text-slate-700">
+                    <td className="w-20 py-1.5 text-right font-semibold text-slate-700">
                       {fmtDec(l.costMicro, 2)}
                     </td>
-                    <td className="py-2">
+                    <td className="w-7 py-1.5">
                       <button
                         className="mx-auto block text-slate-300 transition hover:text-red-500"
                         title="Quitar de la ficha"
@@ -862,9 +877,9 @@ function EmpaquetadoCard({
                 </td>
               </tr>
               <tr className="border-t border-slate-200">
-                <td className="py-2 font-bold text-slate-700">Total empaquetado</td>
+                <td className="py-1.5 font-bold text-slate-700">Total empaquetado</td>
                 <td></td>
-                <td className="py-2 text-right text-[15px] font-bold text-slate-800">
+                <td className="py-1.5 text-right text-[15px] font-bold text-slate-800">
                   {fmtDec(total, 2)}
                 </td>
                 <td></td>
@@ -897,7 +912,6 @@ export function CostSheetsPage() {
   const addKey = useRef(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmModal, setConfirmModal] = useState(false);
   const [rateModal, setRateModal] = useState<
     { kind: "masa" | "terminacion"; id: number; name: string } | null
   >(null);
@@ -994,6 +1008,16 @@ export function CostSheetsPage() {
   const setField = (f: keyof Omit<Overrides, "itemQty" | "itemSub" | "itemPrice">, v: string) =>
     setOv((o) => ({ ...o, [f]: v }));
 
+  // Triángulo masas × rendimiento = paquetes (gana el último editado; el
+  // backend deriva la cantidad ausente del rendimiento vigente en la sim).
+  const setMassesOv = (v: string) =>
+    setOv((o) => ({ ...o, masses: v, packages: v !== "" ? "" : o.packages }));
+  const setPackagesOv = (v: string) =>
+    setOv((o) => ({ ...o, packages: v, masses: v !== "" ? "" : o.masses }));
+  // Editar rendimiento no rompe masas/paquetes: el no editado se rederiva… pero
+  // si hay paquetes fijados de una edición previa, esos mandan (server rederiva
+  // las masas). setField("yield") cubre el caso sin mutex de paquetes.
+
   const setQty = (itemId: number, v: string) =>
     setOv((o) => {
       const itemQty = { ...o.itemQty };
@@ -1019,16 +1043,11 @@ export function CostSheetsPage() {
     });
 
   const resetSheet = () => {
-    if (!hasOv(ov) || !version) {
-      setOv(emptyOv());
-      return;
-    }
-    setConfirmModal(true);
-  };
-
-  const doReset = () => {
-    setConfirmModal(false);
+    // Restablece al instante: devuelve receta base y limpia la simulación.
     setOv(emptyOv());
+    setRemovedIds([]);
+    setAddedLines([]);
+    setError(null);
   };
 
   const saveRate = async () => {
@@ -1104,7 +1123,7 @@ export function CostSheetsPage() {
     }
     // Cantidades por masa / por paquete desde la ficha simulada. Las líneas
     // sustituidas se guardan en la unidad base del material sustituto.
-    const items: { name: string; rawMaterialId: number; unitId: string; qty: number; phase: "masa" | "paquete" }[] = [];
+    const items: { name: string; rawMaterialId: number; unitId: string; qty: string; phase: "masa" | "paquete" }[] = [];
     const collect = (lines: CostItemLine[], factorMicro: number): string | null => {
       for (const l of lines) {
         let unitId = l.unitId;
@@ -1116,7 +1135,14 @@ export function CostSheetsPage() {
         if (qty <= 0) {
           return `La línea "${l.name}" queda con cantidad 0 por la unidad "${l.unitId}". Corrija la sustitución en la ficha antes de actualizar la receta.`;
         }
-        items.push({ name: l.name, rawMaterialId: l.rawMaterialId, unitId, qty, phase: l.phase });
+        // Decimal exacto (micro = 6 decimales): el server lo convierte a micro.
+        items.push({
+          name: l.name,
+          rawMaterialId: l.rawMaterialId,
+          unitId,
+          qty: microToDecimalTrim(qty, 6),
+          phase: l.phase,
+        });
       }
       return null;
     };
@@ -1148,7 +1174,7 @@ export function CostSheetsPage() {
         description: currentRecipe?.description ?? null,
         version: {
           massId: sheet.massId,
-          expectedYield: yieldMicro,
+          expectedYield: microToDecimalTrim(yieldMicro, 6),
           yieldUnitId: sheet.saleUnitId,
           instructions: vinfo.instructions,
           validFrom: vinfo.validFrom,
@@ -1324,7 +1350,7 @@ export function CostSheetsPage() {
                   inputMode="decimal"
                   placeholder={sim ? microStr(sim.massesMicro) : ""}
                   value={ov.masses}
-                  onChange={(e) => setField("masses", e.target.value)}
+                  onChange={(e) => setMassesOv(e.target.value)}
                 />
                 <span className="text-[12px] text-slate-400">masas</span>
               </div>
@@ -1336,9 +1362,12 @@ export function CostSheetsPage() {
               </div>
               <div className="flex justify-center">
                 <input
-                  className={`${INPUT} w-28 text-center`}
-                  readOnly
-                  value={sheet ? `${fmtQtyEs(sheet.expectedYieldMicro)}` : ""}
+                  className={`w-16 text-center ${ov.yield !== "" ? INPUT_OV : INPUT}`}
+                  inputMode="decimal"
+                  placeholder={sheet ? microStr(sheet.expectedYieldMicro) : ""}
+                  title="Paquetes esperados por masa (editable)"
+                  value={ov.yield}
+                  onChange={(e) => setField("yield", e.target.value)}
                 />
               </div>
             </div>
@@ -1349,9 +1378,12 @@ export function CostSheetsPage() {
               </div>
               <div className="flex items-center justify-center gap-1.5">
                 <input
-                  className={`${INPUT} w-20 cursor-default bg-slate-50 text-center`}
-                  readOnly
-                  value={sheet ? fmtWhole(sheet.sim.packagesMicro) : ""}
+                  className={`w-20 text-center ${ov.packages !== "" ? INPUT_OV : INPUT}`}
+                  inputMode="decimal"
+                  placeholder={sim ? microStr(sim.packagesMicro) : ""}
+                  title="Total de paquetes a producir (editable)"
+                  value={ov.packages}
+                  onChange={(e) => setPackagesOv(e.target.value)}
                 />
                 <span className="text-[12px] text-slate-400">paquetes</span>
               </div>
@@ -1389,12 +1421,6 @@ export function CostSheetsPage() {
               <button className={BTN_SOFT} onClick={resetSheet}>
                 <RotateCcw size={14} /> Restablecer ficha
               </button>
-              <button
-                className={BTN_PRIMARY}
-                onClick={() => recalc(version, ov, { removed: removedIds, added: addedLines }, setSheet)}
-              >
-                <Table2 size={14} /> Simular cambios
-              </button>
             </div>
           </div>
 
@@ -1420,7 +1446,7 @@ export function CostSheetsPage() {
                 </div>
               )}
 
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
                 {sheet && (
                   <>
                     <LaborElabCard
@@ -1499,6 +1525,14 @@ export function CostSheetsPage() {
                           {fmtCup(sheet.costPerPackageMicro)}
                         </span>
                       </div>
+                      <div className="flex items-baseline justify-between gap-2 border-b border-slate-100 py-1.5 text-[13px]">
+                        <span className="min-w-0 truncate text-slate-500">
+                          → Costo por unidad ind. ({sheet.sim.unitsPerPackage} por paquete)
+                        </span>
+                        <span className="whitespace-nowrap font-semibold text-slate-700">
+                          {cupPerUnit(sheet.costPerPackageMicro, sheet.sim.unitsPerPackage)}
+                        </span>
+                      </div>
                     </div>
                   </section>
                 )}
@@ -1536,6 +1570,23 @@ export function CostSheetsPage() {
                               econ.grossProfitMicro != null && econ.grossProfitMicro < 0
                                 ? "font-semibold text-red-500"
                                 : "font-semibold text-slate-800",
+                            ],
+                            [
+                              "Costo por unidad ind.",
+                              cupPerUnit(sheet.costPerPackageMicro, sheet.sim.unitsPerPackage),
+                              "text-slate-600",
+                            ],
+                            [
+                              "Venta por unidad ind.",
+                              cupPerUnit(econ.salePriceMicro, sheet.sim.unitsPerPackage),
+                              "text-slate-600",
+                            ],
+                            [
+                              "Ganancia por unidad ind.",
+                              cupPerUnit(econ.grossProfitMicro, sheet.sim.unitsPerPackage),
+                              econ.grossProfitMicro != null && econ.grossProfitMicro < 0
+                                ? "font-semibold text-red-500"
+                                : "text-slate-600",
                             ],
                             [
                               "Margen bruto",
@@ -1607,12 +1658,6 @@ export function CostSheetsPage() {
                         </div>
                       </div>
                     </div>
-                    <button
-                      className={`${BTN_PRIMARY} mt-4 w-full justify-center py-2.5 text-[14px]`}
-                      onClick={() => recalc(version, ov, { removed: removedIds, added: addedLines }, setSheet)}
-                    >
-                      <Table2 size={15} /> Simular cambios
-                    </button>
                   </section>
                 )}
               </div>
@@ -1711,24 +1756,6 @@ export function CostSheetsPage() {
       )}
 
       {/* Modal Restablecer ficha */}
-      {confirmModal && (
-        <Modal title="Restablecer ficha" onClose={() => setConfirmModal(false)}>
-          <p className="text-sm text-slate-600">
-            ¿Restablecer la ficha a los valores originales? Se perderán las ediciones y sustituciones
-            de esta simulación.
-          </p>
-          <div className="mt-4 flex justify-end gap-2">
-            <button className="btn btn-secondary" onClick={() => setConfirmModal(false)}>
-              Cancelar
-            </button>
-            <button className="btn btn-danger" onClick={doReset}>
-              Restablecer
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* Modal Actualizar receta */}
       {updateModal && sheet && (
         <Modal
           title={`Actualizar receta — ${sheet.recipeName} v${sheet.version}`}
