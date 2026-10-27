@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { CheckCircle2, X } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { microToDecimalTrim } from "@shared/money";
 import { PageHeader } from "../components/PageHeader";
@@ -112,6 +113,7 @@ interface ConfirmResult {
   id: number;
   number: number;
   duplicated: boolean;
+  /** OJO del server: son las MASAS esperadas (plan), no paquetes por masa. */
   expectedYieldMicro: number;
   realYieldMicro: number;
   deviationMicro: number;
@@ -153,6 +155,15 @@ export function ProductionsPage() {
   const [saving, setSaving] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const queryHandled = useRef(false);
+  const navigate = useNavigate();
+  // Producción recién confirmada: ofrece terminar (empaquetar) esas masas.
+  const [justProduced, setJustProduced] = useState<{
+    number: number;
+    recipeVersionId: string;
+    recipeName: string;
+    masses: string;
+    expectedPackagesMicro: number;
+  } | null>(null);
 
   // Día visible: por defecto hoy; se cambia con el filtro de fecha.
   const [date, setDate] = useState(todayISO());
@@ -229,6 +240,7 @@ export function ProductionsPage() {
     setClientToken(newClientToken());
     setPreview(null);
     setError(null);
+    setJustProduced(null);
     setView("form");
   };
 
@@ -264,7 +276,7 @@ export function ProductionsPage() {
     setError(null);
     try {
       // Confirmación idempotente por clientToken: un reenvío devuelve el mismo registro.
-      await api.post<ConfirmResult>("/productions", {
+      const res = await api.post<ConfirmResult>("/productions", {
         productionDate: form.productionDate,
         recipeVersionId: Number(form.recipeVersionId),
         massesCount: form.massesCount,
@@ -274,6 +286,19 @@ export function ProductionsPage() {
         notes: form.notes || null,
         clientToken,
       });
+      // Opción de encadenar: terminar (empaquetar) las masas recién producidas.
+      // OJO: res.expectedYieldMicro del POST son las MASAS esperadas (plan), no
+      // paquetes; los paquetes esperados = masas × rendimiento (yield) de la receta.
+      if (selectedRecipe) {
+        setJustProduced({
+          number: res.number,
+          recipeVersionId: form.recipeVersionId,
+          recipeName: selectedRecipe.name,
+          masses: form.massesCount,
+          expectedPackagesMicro:
+            Number(form.massesCount) * (selectedRecipe.expectedYieldMicro ?? 0),
+        });
+      }
       setView("list");
       load();
     } catch (e) {
@@ -350,6 +375,37 @@ export function ProductionsPage() {
 
       {view === "list" && (
         <>
+          {justProduced && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-800">
+              <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+              <span className="min-w-0 flex-1">
+                Producción <strong>#{fmtDocNumber(justProduced.number)}</strong> confirmada —{" "}
+                {justProduced.masses} masa(s) de {justProduced.recipeName}. La terminación está
+                disponible:{" "}
+              </span>
+              <button
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-[12px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                title="Abre la terminación pre-cargada con estas masas (consume las masas por PEPS)"
+                onClick={() => {
+                  navigate(
+                    `/operaciones/transformacion?recipeVersionId=${justProduced.recipeVersionId}` +
+                      `&massQty=${justProduced.masses}` +
+                      `&outputQty=${microToDecimalTrim(justProduced.expectedPackagesMicro, 3)}`,
+                  );
+                  setJustProduced(null);
+                }}
+              >
+                Terminar esta producción
+              </button>
+              <button
+                className="shrink-0 text-emerald-500 transition hover:text-emerald-700"
+                title="Descartar"
+                onClick={() => setJustProduced(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <SearchInput value={q} onChange={setQ} placeholder="Buscar por receta, masa o número…" />
             <div className="flex flex-wrap items-center gap-3">

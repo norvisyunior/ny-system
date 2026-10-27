@@ -655,44 +655,69 @@ function LaborElabCard({
   const d = sheet.laborElab;
   const missing = d.rateBasis === "sin_configurar";
   return (
-    <section className={`${CARD} p-5`}>
-      <h2 className={CARD_TITLE}>Mano de obra - Elaboración de masas</h2>
-      <div className="mt-4 flex flex-wrap items-end gap-x-5 gap-y-3">
-        <div className="min-w-[150px] flex-1">
-          <div className="mb-1.5 text-[12px] font-medium text-slate-600">Tipo de masa</div>
-          <select className={`${INPUT} w-full min-w-0`} value={d.massName} disabled>
-            <option>{d.massName}</option>
-          </select>
+    <section className={`${CARD} p-4`}>
+      <div className="flex items-center gap-2">
+        <span
+          className={`size-1.5 shrink-0 rounded-full ${
+            missing ? "bg-rose-400" : d.rateBasis === "simulada" ? "bg-amber-400" : "bg-emerald-500"
+          }`}
+        />
+        <h2 className="text-[13px] font-bold text-slate-700">MO · Elaboración de masas</h2>
+        <span className="ml-auto text-[9px] font-medium text-slate-400">
+          {missing ? "sin tarifa" : d.rateBasis === "simulada" ? "tarifa simulada" : "tarifa fija"}
+        </span>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-end gap-x-5 gap-y-2">
+        <div className="min-w-[110px]">
+          <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Masa
+          </div>
+          <div className="text-[13px] font-semibold tracking-tight text-slate-800">
+            {d.massName}
+          </div>
           <button
-            className={`mt-2 text-[11px] font-semibold underline ${
-              missing ? "text-[#b45309]" : "text-slate-500"
+            className={`mt-0.5 text-[10px] font-semibold underline decoration-slate-300 underline-offset-2 transition hover:text-[#1355d9] ${
+              missing ? "text-amber-600" : "text-slate-400"
             }`}
             onClick={onConfigure}
           >
-            {missing ? "Configurar tarifa (falta para el cálculo)" : "Configurar tarifa"}
+            {missing ? "Configurar tarifa (falta)" : "Configurar tarifa"}
           </button>
-          <div className="mt-1 text-[10px] text-slate-400">
-            Si escribes aquí arriba es una tarifa simulada (no se guarda).
-          </div>
         </div>
-        <div className="min-w-[140px] flex-1">
-          <div className="mb-1.5 text-[12px] font-medium text-slate-600">Tarifa por masa</div>
-          <div className="flex items-center gap-1.5">
+        <div className="min-w-[130px] flex-1">
+          <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Tarifa por masa
+          </div>
+          <div
+            className={`mt-0.5 flex h-8 items-center rounded-md border px-2 ${
+              ov.elabRate !== ""
+                ? "border-amber-300 bg-amber-50 focus-within:border-amber-400"
+                : "border-slate-200 bg-white focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-100"
+            }`}
+          >
             <input
-              className={`min-w-0 flex-1 ${ov.elabRate !== "" ? INPUT_OV : INPUT}`}
+              className="h-full w-full min-w-0 bg-transparent text-[12px] text-slate-700 outline-none"
               inputMode="decimal"
               placeholder={d.rateMicro != null ? fmtDec(d.rateMicro, 2) : "—"}
               value={ov.elabRate}
               onChange={(e) => onRate(e.target.value)}
             />
-            <span className="text-[12px] font-medium text-slate-400">CUP</span>
+            <span className="ml-1 text-[10px] font-medium text-slate-400">CUP</span>
           </div>
         </div>
-        <div className="min-w-[110px]">
-          <div className="text-[12px] font-medium text-slate-600">Costo total</div>
-          <div className="text-[18px] font-bold text-slate-800">{fmtCup(d.costMicro)}</div>
+        <div className="min-w-[90px] text-right">
+          <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Costo total
+          </div>
+          <div className="text-[17px] font-extrabold tabular-nums tracking-tight text-slate-800">
+            {fmtCup(d.costMicro)}
+          </div>
+          <div className="text-[9px] text-slate-400">por {fmtWhole(sheet.sim.massesMicro)} masa(s)</div>
         </div>
       </div>
+      {ov.elabRate !== "" && (
+        <div className="mt-1 text-[9px] text-amber-600">Tarifa simulada (no se guarda)</div>
+      )}
     </section>
   );
 }
@@ -711,49 +736,69 @@ function LaborTermCard({
   const d = sheet.laborTerm;
   const missing = d.rateBasis === "sin_configurar";
   return (
-    <section className={`${CARD} p-5`}>
-      <h2 className={CARD_TITLE}>Mano de obra - Terminación y empaquetado</h2>
-      <div className="mt-4 flex flex-wrap items-end gap-x-5 gap-y-3">
-        <div className="min-w-[150px] flex-1">
-          <div className="mb-1.5 text-[12px] font-medium text-slate-600">Producto</div>
-          <select className={`${INPUT} w-full min-w-0`} value={d.productName} disabled>
-            <option>{d.productName}</option>
-          </select>
+    <section className={`${CARD} p-4`}>
+      <div className="flex items-center gap-2">
+        <span
+          className={`size-1.5 shrink-0 rounded-full ${
+            missing ? "bg-rose-400" : d.rateBasis === "simulada" ? "bg-amber-400" : "bg-emerald-500"
+          }`}
+        />
+        <h2 className="text-[13px] font-bold text-slate-700">MO · Terminación y empaquetado</h2>
+        <span className="ml-auto text-[9px] font-medium text-slate-400">
+          {missing ? "sin tarifa" : d.rateBasis === "simulada" ? "tarifa simulada" : "tarifa fija"}
+        </span>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-end gap-x-5 gap-y-2">
+        <div className="min-w-[110px]">
+          <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Producto
+          </div>
+          <div className="text-[13px] font-semibold tracking-tight text-slate-800">
+            {d.productName}
+          </div>
           <button
-            className={`mt-2 text-[11px] font-semibold underline ${
-              missing ? "text-[#b45309]" : "text-slate-500"
+            className={`mt-0.5 text-[10px] font-semibold underline decoration-slate-300 underline-offset-2 transition hover:text-[#1355d9] ${
+              missing ? "text-amber-600" : "text-slate-400"
             }`}
             onClick={onConfigure}
           >
-            {missing ? "Configurar tarifa (falta para el cálculo)" : "Configurar tarifa"}
+            {missing ? "Configurar tarifa (falta)" : "Configurar tarifa"}
           </button>
-          <div className="mt-1 text-[10px] text-slate-400">
-            Si escribes aquí arriba es una tarifa simulada (no se guarda).
-          </div>
         </div>
-        <div className="min-w-[140px] flex-1">
-          <div className="mb-1.5 text-[12px] font-medium text-slate-600">
+        <div className="min-w-[130px] flex-1">
+          <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
             Tarifa por unidad ind.
           </div>
-          <div className="flex items-center gap-1.5">
+          <div
+            className={`mt-0.5 flex h-8 items-center rounded-md border px-2 ${
+              ov.termRate !== ""
+                ? "border-amber-300 bg-amber-50 focus-within:border-amber-400"
+                : "border-slate-200 bg-white focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-100"
+            }`}
+          >
             <input
-              className={`min-w-0 flex-1 ${ov.termRate !== "" ? INPUT_OV : INPUT}`}
+              className="h-full w-full min-w-0 bg-transparent text-[12px] text-slate-700 outline-none"
               inputMode="decimal"
               placeholder={d.rateMicro != null ? fmtDec(d.rateMicro, 2) : "—"}
               value={ov.termRate}
               onChange={(e) => onRate(e.target.value)}
             />
-            <span className="text-[12px] font-medium text-slate-400">CUP</span>
+            <span className="ml-1 text-[10px] font-medium text-slate-400">CUP</span>
           </div>
         </div>
-        <div className="min-w-[110px]">
-          <div className="text-[12px] font-medium text-slate-600">Costo total</div>
-          <div className="text-[18px] font-bold text-slate-800">{fmtCup(d.costMicro)}</div>
-          <div className="text-[11px] text-slate-400">
-            {fmtWhole(d.unitsTotalMicro)} unidades ind.
+        <div className="min-w-[110px] text-right">
+          <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Costo total
           </div>
+          <div className="text-[17px] font-extrabold tabular-nums tracking-tight text-slate-800">
+            {fmtCup(d.costMicro)}
+          </div>
+          <div className="text-[9px] text-slate-400">{fmtWhole(d.unitsTotalMicro)} unidades ind.</div>
         </div>
       </div>
+      {ov.termRate !== "" && (
+        <div className="mt-1 text-[9px] text-amber-600">Tarifa simulada (no se guarda)</div>
+      )}
     </section>
   );
 }
@@ -1218,7 +1263,7 @@ export function CostSheetsPage() {
       );
     } else {
       nav(
-        `/produccion/transformacion?recipeVersionId=${sheet.recipeVersionId}&massQty=${massesQty}&outputQty=${microToDecimalTrim(sheet.sim.packagesMicro, 3)}`,
+        `/operaciones/transformacion?recipeVersionId=${sheet.recipeVersionId}&massQty=${massesQty}&outputQty=${microToDecimalTrim(sheet.sim.packagesMicro, 3)}`,
       );
     }
   };
