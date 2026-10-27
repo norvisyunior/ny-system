@@ -158,9 +158,10 @@ export function MaterialsPage() {
   const DIMENSION_LABEL: Record<string, string> = {
     masa: "Masa (kg, g, lb)",
     volumen: "Volumen (l, ml)",
+    longitud: "Longitud (m, cm, mm)",
     conteo: "Conteo (unidad, paquete, caja)",
   };
-  const unitGroups = (["masa", "volumen", "conteo"] as const)
+  const unitGroups = (["masa", "volumen", "longitud", "conteo"] as const)
     .map((dim) => ({ dim, units: units.filter((u) => u.dimension === dim) }))
     .filter((g) => g.units.length > 0);
 

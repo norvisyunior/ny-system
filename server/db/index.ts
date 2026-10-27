@@ -40,8 +40,15 @@ export function createDb(dbPath: string = DEFAULT_DB_PATH): DbHandle {
 
 function ensureUnits(db: DB): void {
   const existing = db.select({ code: units.code }).from(units).all();
-  if (existing.length > 0) return;
-  db.insert(units).values(UNITS_SEED).run();
+  if (existing.length === 0) {
+    db.insert(units).values(UNITS_SEED).run();
+    return;
+  }
+  // La semilla crece con el sistema: agrega las unidades que falten en la BD
+  // (p. ej. m/cm/mm) sin tocar las existentes.
+  const known = new Set(existing.map((e) => e.code));
+  const missing = UNITS_SEED.filter((u) => !known.has(u.code));
+  if (missing.length > 0) db.insert(units).values(missing).run();
 }
 
 let singleton: DbHandle | null = null;

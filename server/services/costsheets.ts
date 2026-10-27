@@ -241,12 +241,13 @@ function compatibleUnits(catalog: UnitsCatalog, unitCode: string, baseCode: stri
   }
 }
 
-/** Subtotales de cantidad: masa → kg; volumen → l; conteo → por unidad propia. */
+/** Subtotales de cantidad: masa → kg; volumen → l; longitud → m; conteo → por unidad propia. */
 function buildQtyTotals(catalog: UnitsCatalog, lines: CostItemLine[]): QtyTotal[] {
   const keys: { unit: string; dimension: string }[] = [];
   for (const l of lines) {
     const dim = catalog.get(l.baseUnitId).dimension;
-    const unit = dim === "conteo" ? l.baseUnitId : dim === "masa" ? "kg" : "l";
+    const unit =
+      dim === "conteo" ? l.baseUnitId : dim === "masa" ? "kg" : dim === "longitud" ? "m" : "l";
     if (!keys.some((k) => k.unit === unit)) keys.push({ unit, dimension: dim });
   }
   const totals: QtyTotal[] = [];

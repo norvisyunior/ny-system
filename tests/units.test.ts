@@ -20,6 +20,13 @@ describe("UnitsCatalog — identidad y conversiones", () => {
     expect(catalog.toBase(2_500_000, "ml", "l")).toBe(2_500);
   });
 
+  it("convierte dentro de la dimensión longitud", () => {
+    expect(catalog.toBase(1_000_000, "m", "cm")).toBe(100_000_000); // 1 m = 100 cm
+    expect(catalog.toBase(2_500_000, "cm", "m")).toBe(25_000); // 2,5 m
+    expect(catalog.toBase(1_000_000, "m", "mm")).toBe(1_000_000_000); // 1 m = 1000 mm
+    expect(catalog.toBase(55_000_000, "mm", "m")).toBe(55_000); // 55 mm = 0,055 m
+  });
+
   it("redondea half-away-from-zero en conversiones", () => {
     expect(catalog.toBase(1_500, "g", "kg")).toBe(2);
     expect(catalog.toBase(1_499, "g", "kg")).toBe(1);
@@ -52,9 +59,9 @@ describe("UnitsCatalog — prohibiciones", () => {
     expect(() => catalog.get("xyz")).toThrow(/Unidad desconocida/);
   });
 
-  it("el semilla de unidades es consistente (8 unidades, bases marcadas)", () => {
-    expect(UNITS_SEED).toHaveLength(8);
+  it("la semilla de unidades es consistente (11 unidades, bases marcadas)", () => {
+    expect(UNITS_SEED).toHaveLength(11);
     const bases = UNITS_SEED.filter((u) => u.isBase);
-    expect(bases.map((u) => u.code).sort()).toEqual(["kg", "l", "unidad"]);
+    expect(bases.map((u) => u.code).sort()).toEqual(["kg", "l", "m", "unidad"]);
   });
 });

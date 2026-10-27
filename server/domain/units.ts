@@ -3,7 +3,7 @@ import { units } from "../../db/schema";
 
 export type UnitRow = InferSelectModel<typeof units>;
 
-export const DIMENSIONS = ["masa", "volumen", "conteo"] as const;
+export const DIMENSIONS = ["masa", "volumen", "longitud", "conteo"] as const;
 export type Dimension = (typeof DIMENSIONS)[number];
 
 /**
@@ -87,6 +87,9 @@ export const UNITS_SEED: UnitRow[] = [
   { code: "lb", label: "Libra", dimension: "masa", factor: 453_592, isBase: false },
   { code: "l", label: "Litro", dimension: "volumen", factor: 1_000_000, isBase: true },
   { code: "ml", label: "Mililitro", dimension: "volumen", factor: 1_000, isBase: false },
+  { code: "m", label: "Metro", dimension: "longitud", factor: 1_000_000, isBase: true },
+  { code: "cm", label: "Centímetro", dimension: "longitud", factor: 10_000, isBase: false },
+  { code: "mm", label: "Milímetro", dimension: "longitud", factor: 1_000, isBase: false },
   { code: "unidad", label: "Unidad", dimension: "conteo", factor: 1_000_000, isBase: true },
   { code: "paquete", label: "Paquete", dimension: "conteo", factor: 1_000_000, isBase: false },
   { code: "caja", label: "Caja", dimension: "conteo", factor: 1_000_000, isBase: false },

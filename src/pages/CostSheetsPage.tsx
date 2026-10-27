@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { ErrorAlert, Modal, Badge } from "../components/ui";
-import { divRoundAway } from "@shared/money";
+import { divRoundAway, mulQtyPrice } from "@shared/money";
 
 // ---------------------------------------------------------------------------
 // Tipos (espejo de la respuesta del backend)
@@ -1742,13 +1742,31 @@ export function CostSheetsPage() {
                       </span>
                     </div>
                   ))}
-                  <div className="flex items-center justify-between px-3 py-2.5">
-                    <span className="text-[12px] font-semibold text-slate-600">Margen bruto</span>
-                    <span
-                      className={`text-[15px] font-bold ${econ?.marginPctMicro != null && econ.marginPctMicro < 0 ? "text-red-500" : "text-[#1355d9]"}`}
-                    >
-                      {econ?.marginPctMicro != null ? fmtPctEs(econ.marginPctMicro) : "—"}
-                    </span>
+                  <div className="border-b border-slate-100">
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <span className="text-[12px] font-semibold text-slate-600">Margen bruto</span>
+                      <span
+                        className={`text-[15px] font-bold ${econ?.marginPctMicro != null && econ.marginPctMicro < 0 ? "text-red-500" : "text-[#1355d9]"}`}
+                      >
+                        {econ?.marginPctMicro != null ? fmtPctEs(econ.marginPctMicro) : "—"}
+                      </span>
+                    </div>
+                    {sheet != null && sheet.sim.packagesMicro > 0 && econ != null && econ.grossProfitMicro != null && (
+                      <div
+                        className="flex items-center justify-between rounded-b-lg px-3 py-2.5"
+                        style={{ background: econ.grossProfitMicro < 0 ? "#fdeaea" : GREEN_BG }}
+                      >
+                        <span className="text-[12px] font-semibold text-slate-600">
+                          Ganancia por vender {fmtWhole(sheet.sim.packagesMicro)} paquetes
+                        </span>
+                        <span
+                          className="text-[14px] font-extrabold whitespace-nowrap"
+                          style={{ color: econ.grossProfitMicro < 0 ? "#dc2626" : GREEN_TEXT }}
+                        >
+                          {fmtCup(mulQtyPrice(sheet.sim.packagesMicro, econ.grossProfitMicro))}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
