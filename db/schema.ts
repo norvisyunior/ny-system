@@ -256,6 +256,17 @@ export const recipeVersions = sqliteTable(
       .references(() => masses.id),
     // Rendimiento esperado de UNA masa, expresado en paquetes (unidad de venta
     // del producto). Es una referencia de planificación, no una garantía.
+    // Método del rendimiento:
+    // - 'directo': paquetes fijos por masa (expectedYieldMicro).
+    // - 'peso': paquetes teóricos = pesoTotalMasa × pesoUnidad / unidadesPorPaquete
+    //   (compatibilidad Excel; unidades configuradas por el usuario).
+    yieldMethod: text("yield_method").notNull().default("directo"), // directo | peso
+    // Peso de UNA unidad de producto (paso clave del método por peso), en micros
+    // de unitMassUnitId (conserva las unidades originales del usuario).
+    unitMassMicro: integer("unit_mass_micro"),
+    unitMassUnitId: text("unit_mass_unit_id").references(() => units.code),
+    // Unidad en que se suma (y muestra) el peso total de los ingredientes de masa.
+    yieldMassUnitId: text("yield_mass_unit_id").references(() => units.code),
     expectedYieldMicro: integer("expected_yield_micro").notNull(),
     yieldUnitId: text("yield_unit_id")
       .notNull()

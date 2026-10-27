@@ -43,6 +43,21 @@ export const versionInput = z.object({
     maxLabel: "paquetes por masa",
   }),
   yieldUnitId: z.string().min(1, "Unidad de rendimiento requerida."),
+  // Método del rendimiento: 'directo' (paquetes fijos por masa, como siempre)
+  // o 'peso' (paquetes teóricos = pesoTotalMasa × pesoUnidad / unidadesPorPaquete;
+  // modo de compatibilidad con el Excel del cliente, sin redondeo intermedio).
+  yieldMethod: z.enum(["directo", "peso"]).default("directo"),
+  // Peso de UNA unidad de producto (ej. 5.1 g), en micros de unitMassUnitId:
+  // se conservan las unidades originales que usó el usuario.
+  unitMass: decMicro({
+    minExclusive: true,
+    max: 1_000_000_000,
+    maxLabel: "por unidad (unidades de la unidad elegida)",
+  }).optional(),
+  unitMassUnitId: z.string().optional(),
+  // Unidad en que se suma y muestra el peso total de los ingredientes de masa
+  // (kg, lb o g). Ausente → kg.
+  yieldMassUnitId: z.string().optional(),
   instructions: z.string().trim().max(2000).optional().nullable(),
   validFrom: z.string().min(1, "Fecha de vigencia requerida."),
   notes: z.string().trim().max(500).optional().nullable(),
@@ -113,6 +128,30 @@ function validateVersionItems(
     }
   }
 
+  if (version.yieldMethod === "peso") {
+    if (version.unitMass == null || version.unitMassUnitId == null) {
+      throw domainError(
+        "El método por peso requiere el peso de una unidad de producto y su unidad (ej. 5.1 g).",
+      );
+    }
+    try {
+      catalog.get(version.unitMassUnitId);
+      if (version.yieldMassUnitId != null) catalog.get(version.yieldMassUnitId);
+    } catch {
+      throw domainError("Unidad de peso desconocida para el método por peso.");
+    }
+    if (catalog.get(version.unitMassUnitId).dimension !== "masa") {
+      throw domainError(
+        `El peso por unidad debe medirse en una unidad de masa (kg, g, lb); "${version.unitMassUnitId}" no lo es.`,
+      );
+    }
+    if (version.yieldMassUnitId != null && catalog.get(version.yieldMassUnitId).dimension !== "masa") {
+      throw domainError(
+        `La unidad del peso de la masa debe ser de masa (kg, g, lb); "${version.yieldMassUnitId}" no lo es.`,
+      );
+    }
+  }
+
   const seen = new Set<number>();
   for (const item of version.items) {
     const mat = tx.select().from(rawMaterials).where(eq(rawMaterials.id, item.rawMaterialId)).get();
@@ -143,6 +182,10 @@ function insertVersionWithItems(
       version: versionNumber,
       status: "activa",
       massId: input.massId,
+      yieldMethod: input.yieldMethod,
+      unitMassMicro: input.unitMass ?? null,
+      unitMassUnitId: input.unitMassUnitId ?? null,
+      yieldMassUnitId: input.yieldMassUnitId ?? null,
       expectedYieldMicro: input.expectedYield,
       yieldUnitId: input.yieldUnitId,
       instructions: input.instructions ?? null,
@@ -235,6 +278,10 @@ export function updateRecipe(
     tx.update(recipeVersions)
       .set({
         massId: input.version.massId,
+        yieldMethod: input.version.yieldMethod,
+        unitMassMicro: input.version.unitMass ?? null,
+        unitMassUnitId: input.version.unitMassUnitId ?? null,
+        yieldMassUnitId: input.version.yieldMassUnitId ?? null,
         expectedYieldMicro: input.version.expectedYield,
         yieldUnitId: input.version.yieldUnitId,
         instructions: input.version.instructions ?? null,
@@ -341,6 +388,10 @@ export function getRecipeVersionDetail(db: DBOrTx, versionId: number) {
       massUnit: masses.unitId,
       expectedYieldMicro: recipeVersions.expectedYieldMicro,
       yieldUnitId: recipeVersions.yieldUnitId,
+      yieldMethod: recipeVersions.yieldMethod,
+      unitMassMicro: recipeVersions.unitMassMicro,
+      unitMassUnitId: recipeVersions.unitMassUnitId,
+      yieldMassUnitId: recipeVersions.yieldMassUnitId,
       instructions: recipeVersions.instructions,
       validFrom: recipeVersions.validFrom,
       notes: recipeVersions.notes,

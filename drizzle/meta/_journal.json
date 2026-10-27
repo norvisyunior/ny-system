@@ -43,6 +43,13 @@
       "when": 1793041876744,
       "tag": "0005_labor_on_production",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793113699442,
+      "tag": "0006_green_madame_masque",
+      "breakpoints": true
     }
   ]
 }

@@ -46,6 +46,27 @@ export const costSheetInput = zr.object({
   masses: decMicro({ minExclusive: true }).optional(),
   // Paquetes previstos (0 permitido → sin costo por paquete).
   packages: decMicro().optional(),
+  // Método de cálculo del rendimiento (override en vivo de la receta, solo
+  // simulación): "directo" (paquetes × masas) o "peso" (Excel-compatible).
+  yieldMethod: zr.enum(["directo", "peso"]).optional(),
+  // Peso por unidad de producto (override en vivo; micros de unitMassUnitId).
+  unitMass: decMicro({
+    minExclusive: true,
+    max: 1_000_000_000,
+    maxLabel: "el peso por unidad",
+  }).optional(),
+  // Unidad del peso por unidad del override (kg/g/lb).
+  unitMassUnitId: zr.string().optional(),
+  // Unidad en que se muestra/edita la suma del peso (kg/g/lb; override en vivo
+  // de yieldMassUnitId de la receta).
+  massWeightUnit: zr.string().optional(),
+  // Peso de los ingredientes de la masa (override del calculado, en micros de
+  // la unidad configurada en la receta). Solo aplica al método por peso.
+  massWeight: decMicro({
+    minExclusive: true,
+    max: 1_000_000_000_000,
+    maxLabel: "por masa (unidades de la unidad elegida)",
+  }).optional(),
   // Rendimiento simulado (> 0): paquetes por masa. Ausente → el de la receta.
   yield: decMicro({
     minExclusive: true,
@@ -154,6 +175,11 @@ export interface CostSheet {
   massUnitId: string;
   expectedYieldMicro: number;
   yieldUnitId: string;
+  // Método del rendimiento guardado en la receta.
+  yieldMethod: "directo" | "peso";
+  unitMassMicro: number | null;
+  unitMassUnitId: string | null;
+  yieldMassUnitId: string | null;
   consultationDate: string;
 
   defaults: {
@@ -172,6 +198,11 @@ export interface CostSheet {
     unitsTotalMicro: number;
     salePriceMicro: number;
     marginTargetPctMicro: number | null;
+    // Método por peso: peso total de la masa (micro de massWeightUnitId),
+    // paquetes teóricos POR masa y su unidad de suma. Null con método directo.
+    massWeightMicro: number | null;
+    massWeightUnitId: string | null;
+    packagesPerMassMicro: number | null;
   };
 
   ingredients: CostItemLine[]; // fase 'masa'
@@ -215,7 +246,16 @@ interface BuildOpts {
   massesMicro?: number;
   packagesMicro?: number;
   // Rendimiento simulado (paquetes por masa). Ausente → el de la receta.
+  // Solo válido con método 'directo' (en 'peso' se rechaza con error claro).
   yieldMicro?: number;
+  // Peso simulado de la masa (micro de la unidad de la receta). Método 'peso'.
+  massWeightMicro?: number;
+  // Overrides en vivo de la configuración de método guardada en la receta.
+  yieldMethod?: "directo" | "peso";
+  unitMassMicro?: number;
+  unitMassUnitId?: string;
+  // Unidad de la suma del peso (kg/g/lb). Override en vivo de yieldMassUnitId.
+  massWeightUnitId?: string;
   unitsPerPackage?: number;
   salePriceMicro?: number;
   marginTargetPctMicro?: number;
@@ -270,6 +310,39 @@ function buildQtyTotals(catalog: UnitsCatalog, lines: CostItemLine[]): QtyTotal[
   return totals;
 }
 
+/** Peso de UNA masa (kg) según los ítems de fase masa de la simulación
+ *  (respetando sustituciones y cantidades editadas). Excluye lo que no aporta
+ *  peso (materiales de conteo o sustituciones incompatibles) y lo reporta. */
+function masaWeightKgMicro(
+  catalog: UnitsCatalog,
+  masaItems: (typeof recipeItems.$inferSelect)[],
+  matById: Map<number, typeof rawMaterials.$inferSelect>,
+  opts: BuildOpts,
+): { totalKgMicro: number; skipped: string[] } {
+  let total = 0n;
+  const skipped: string[] = [];
+  for (const item of masaItems) {
+    const originalMat = matById.get(item.rawMaterialId);
+    if (!originalMat) continue; // buildLine informa el problema
+    const overrideMatId = opts.itemMaterial?.get(item.id);
+    const effectiveMat =
+      overrideMatId != null ? matById.get(overrideMatId) : originalMat;
+    if (!effectiveMat) continue;
+    const qty = opts.itemQty?.get(item.id) ?? item.qtyMicro;
+    try {
+      const baseMicro = catalog.toBase(qty, item.unitId, effectiveMat.unitId);
+      if (catalog.get(effectiveMat.unitId).dimension !== "masa") {
+        skipped.push(effectiveMat.name);
+        continue;
+      }
+      total += BigInt(catalog.toBase(baseMicro, effectiveMat.unitId, "kg"));
+    } catch {
+      skipped.push(effectiveMat.name);
+    }
+  }
+  return { totalKgMicro: Number(total), skipped };
+}
+
 function buildCostSheet(
   tx: DBOrTx,
   catalog: UnitsCatalog,
@@ -291,6 +364,10 @@ function buildCostSheet(
       productPriceMicro: finishedProducts.priceMicro,
       productUpp: finishedProducts.unitsPerPackage,
       massId: recipeVersions.massId,
+      yieldMethod: recipeVersions.yieldMethod,
+      unitMassMicro: recipeVersions.unitMassMicro,
+      unitMassUnitId: recipeVersions.unitMassUnitId,
+      yieldMassUnitId: recipeVersions.yieldMassUnitId,
       expectedYieldMicro: recipeVersions.expectedYieldMicro,
       yieldUnitId: recipeVersions.yieldUnitId,
       massName: masses.name,
@@ -367,39 +444,141 @@ function buildCostSheet(
     rateRows.find((r) => r.kind === "terminacion" && r.productId === row.productId) ?? null;
 
   // --- Parámetros de la simulación (respaldo = ficha original) ---
-  // Si solo se indican masas → paquetes derivados (masas × rendimiento).
-  // Si solo se indican paquetes → masas derivadas (techo, como los planes).
-  const yieldMicro = opts.yieldMicro ?? row.expectedYieldMicro;
-  if (yieldMicro <= 0 || yieldMicro > MAX_YIELD_PER_MASS_MICRO) {
-    const grande = microToDecimalTrim(yieldMicro, 3);
-    throw domainError(
-      yieldMicro <= 0
-        ? "El rendimiento no puede ser cero: edite la receta o la simulación."
-        : `El rendimiento (${grande} paquetes por masa) es irreal (máximo 1000): revísalo.`,
-    );
-  }
-  const expectedYield = BigInt(yieldMicro);
-  const packagesForMasses = (m: number): number =>
-    Number(divRoundAway(BigInt(m) * expectedYield, BigInt(MICRO)));
-  // Masas derivadas: techo(p ÷ y) en unidades y luego × MICRO (las masas van
-  // siempre en micro-unidades; permite decimales como el resto de la ficha).
-  const massesForPackages = (p: number): number =>
-    p <= 0
-      ? MICRO
-      : Number((BigInt(Math.trunc(p)) + expectedYield - 1n) / expectedYield) * MICRO;
+  const warnings: string[] = [];
+  const unitsPerPackage = opts.unitsPerPackage ?? (row.productUpp ?? 1);
+  const method: "directo" | "peso" =
+    (opts.yieldMethod ?? row.yieldMethod) === "peso" ? "peso" : "directo";
   let massesMicro: number;
   let packagesMicro: number;
-  if (opts.massesMicro != null) {
-    massesMicro = opts.massesMicro;
-    packagesMicro = opts.packagesMicro ?? packagesForMasses(massesMicro);
-  } else if (opts.packagesMicro != null) {
-    packagesMicro = opts.packagesMicro;
-    massesMicro = massesForPackages(packagesMicro);
+  let expectedPackagesMicro: number;
+  let packagesPerMassMicro: number | null = null;
+  let massWeightMicro: number | null = null;
+  // Configuración efectiva de la ficha: override en vivo si la simulación la
+  // define, si no lo persistido en la receta (raíz + sim reflejan lo activo).
+  let unitMassOut = row.unitMassMicro ?? null;
+  let unitMassUnitIdOut = row.unitMassUnitId ?? null;
+  let massWeightUnitId = method === "peso" ? opts.massWeightUnitId ?? row.yieldMassUnitId ?? "kg" : null;
+
+  if (method === "peso") {
+    // Método B (compatibilidad Excel): paquetesPorMasa = pesoTotalMasa × pesoUnidad / UPP.
+    if (opts.yieldMicro != null) {
+      throw domainError(
+        "El rendimiento fijo por masa no aplica al método por peso: edite el peso de la masa y el peso por unidad (método de cálculo del rendimiento).",
+      );
+    }
+    // Peso por unidad: override en vivo o el guardado en la receta. Si aún no
+    // se configuró, la ficha sigue editable (paquetes en 0 + aviso) en vez de
+    // rechazar todo el preview.
+    let umuMicro: number | null = null;
+    const umu = opts.unitMassMicro ?? row.unitMassMicro;
+    const umuUnitId = opts.unitMassUnitId ?? row.unitMassUnitId;
+    if (umu != null && umuUnitId != null) {
+      let umUnit;
+      try {
+        umUnit = catalog.get(umuUnitId);
+      } catch {
+        throw domainError(
+          `La unidad del peso por unidad ("${umuUnitId}") no existe en el catálogo.`,
+        );
+      }
+      if (umUnit.dimension !== "masa") {
+        throw domainError(
+          `El peso por unidad debe medirse en una unidad de masa (kg, g, lb); "${umuUnitId}" no lo es.`,
+        );
+      }
+      umuMicro = umu;
+      unitMassOut = umu;
+      unitMassUnitIdOut = umuUnitId;
+    }
+    // Peso de la masa: override simulado o suma de los ingredientes (fase masa,
+    // excluye empaques/terminación). Se suma en kg y se muestra en la unidad elegida.
+    const masaRows = [...itemRows, ...addedRows].filter((i) => i.phase !== "paquete");
+    const w = masaWeightKgMicro(catalog, masaRows, matById, opts);
+    if (w.totalKgMicro <= 0) {
+      throw domainError(
+        "Los ingredientes de la masa no aportan peso (kg/g/lb): el método por peso no puede calcular el rendimiento.",
+      );
+    }
+    massWeightMicro = opts.massWeightMicro ?? catalog.toBase(w.totalKgMicro, "kg", massWeightUnitId!);
+    for (const name of w.skipped) {
+      warnings.push(`El ingrediente "${name}" no aporta peso al método por peso (no se mide en kg/g/lb).`);
+    }
+    if (umuMicro == null) {
+      // Sin peso por unidad configurado todavía: peso visible, paquetes en 0.
+      warnings.push(
+        'Configure el "Peso por unidad" para calcular los paquetes previstos (guárdelo con "Actualizar receta" para que quede fijo en la receta).',
+      );
+      massesMicro = opts.massesMicro ?? MICRO;
+      packagesMicro = opts.packagesMicro ?? 0;
+      expectedPackagesMicro = 0;
+    } else {
+      const mw = massWeightMicro as number;
+      // Sin redondeo intermedio: (pesoMasa/1e6) × (pesoUnidad/1e6) / upp, en micros de paquete.
+      const porMasaMicro = Number(
+        divRoundAway(
+          BigInt(Math.trunc(mw)) * BigInt(umuMicro),
+          BigInt(MICRO) * BigInt(unitsPerPackage),
+        ),
+      );
+      if (porMasaMicro <= 0 || porMasaMicro > MAX_YIELD_PER_MASS_MICRO) {
+        throw domainError(
+          `El rendimiento teórico (${microToDecimalTrim(porMasaMicro, 4)} paquetes por masa) es irreal (máximo 1000): revisa el peso de la masa, el peso por unidad o las unidades por paquete.`,
+        );
+      }
+      packagesPerMassMicro = porMasaMicro;
+      const packagesForMassesW = (m: number): number =>
+        Number(divRoundAway(BigInt(porMasaMicro) * BigInt(Math.max(0, Math.trunc(m))), BigInt(MICRO)));
+      const massesForPackagesW = (p: number): number =>
+        p <= 0
+          ? MICRO
+          : Number((BigInt(Math.trunc(p)) + BigInt(porMasaMicro) - 1n) / BigInt(porMasaMicro)) * MICRO;
+      if (opts.massesMicro != null) {
+        massesMicro = opts.massesMicro;
+        packagesMicro = opts.packagesMicro ?? packagesForMassesW(massesMicro);
+        expectedPackagesMicro = packagesForMassesW(massesMicro);
+      } else if (opts.packagesMicro != null) {
+        packagesMicro = opts.packagesMicro;
+        massesMicro = massesForPackagesW(packagesMicro);
+        expectedPackagesMicro = packagesForMassesW(massesMicro);
+      } else {
+        massesMicro = MICRO; // 1 masa
+        packagesMicro = porMasaMicro;
+        expectedPackagesMicro = porMasaMicro;
+      }
+    }
   } else {
-    massesMicro = MICRO; // 1 masa
-    packagesMicro = packagesForMasses(massesMicro);
+    // Método A (directo): como siempre. Si solo se indican masas → paquetes
+    // derivados (masas × rendimiento); si solo paquetes → masas con techo.
+    const yieldMicro = opts.yieldMicro ?? row.expectedYieldMicro;
+    if (yieldMicro <= 0 || yieldMicro > MAX_YIELD_PER_MASS_MICRO) {
+      const grande = microToDecimalTrim(yieldMicro, 3);
+      throw domainError(
+        yieldMicro <= 0
+          ? "El rendimiento no puede ser cero: edite la receta o la simulación."
+          : `El rendimiento (${grande} paquetes por masa) es irreal (máximo 1000): revísalo.`,
+      );
+    }
+    const expectedYield = BigInt(yieldMicro);
+    const packagesForMasses = (m: number): number =>
+      Number(divRoundAway(BigInt(m) * expectedYield, BigInt(MICRO)));
+    // Masas derivadas: techo(p ÷ y) en unidades y luego × MICRO (las masas van
+    // siempre en micro-unidades; permite decimales como el resto de la ficha).
+    const massesForPackages = (p: number): number =>
+      p <= 0
+        ? MICRO
+        : Number((BigInt(Math.trunc(p)) + expectedYield - 1n) / expectedYield) * MICRO;
+    if (opts.massesMicro != null) {
+      massesMicro = opts.massesMicro;
+      packagesMicro = opts.packagesMicro ?? packagesForMasses(massesMicro);
+    } else if (opts.packagesMicro != null) {
+      packagesMicro = opts.packagesMicro;
+      massesMicro = massesForPackages(packagesMicro);
+    } else {
+      massesMicro = MICRO; // 1 masa
+      packagesMicro = packagesForMasses(massesMicro);
+    }
+    expectedPackagesMicro = packagesForMasses(massesMicro);
   }
-  const unitsPerPackage = opts.unitsPerPackage ?? (row.productUpp ?? 1);
   const salePriceMicro = opts.salePriceMicro ?? (row.productPriceMicro ?? 0);
   const marginTargetPctMicro = opts.marginTargetPctMicro ?? null;
 
@@ -409,8 +588,6 @@ function buildCostSheet(
     opts.elabRateMicro != null ? "simulada" : elabRateRow ? "configurada" : "sin_configurar";
   const termRateBasis: RateBasis =
     opts.termRateMicro != null ? "simulada" : termRateRow ? "configurada" : "sin_configurar";
-
-  const warnings: string[] = [];
 
   const buildLine = (item: typeof recipeItems.$inferSelect): CostItemLine => {
     const overrideMatId = opts.itemMaterial?.get(item.id);
@@ -605,10 +782,15 @@ function buildCostSheet(
     massUnitId: row.massUnitId ?? "",
     expectedYieldMicro: row.expectedYieldMicro,
     yieldUnitId: row.yieldUnitId,
+    yieldMethod: method,
+    unitMassMicro: unitMassOut,
+    unitMassUnitId: unitMassUnitIdOut,
+    // Configuración efectiva del peso (override en vivo o el de la receta).
+    yieldMassUnitId: opts.massWeightUnitId ?? row.yieldMassUnitId ?? null,
     consultationDate: todayISO(),
     defaults: {
       massesMicro: MICRO,
-      packagesMicro: packagesForMasses(MICRO),
+      packagesMicro: packagesPerMassMicro ?? row.expectedYieldMicro,
       unitsPerPackage: row.productUpp ?? 1,
       elabRateMicro: elabRateRow ? elabRateRow.rateMicro : null,
       termRateMicro: termRateRow ? termRateRow.rateMicro : null,
@@ -617,13 +799,14 @@ function buildCostSheet(
     sim: {
       massesMicro,
       packagesMicro,
-      expectedPackagesMicro: Number(
-        divRoundAway(BigInt(massesMicro) * BigInt(yieldMicro), BigInt(MICRO)),
-      ),
+      expectedPackagesMicro,
       unitsPerPackage,
       unitsTotalMicro,
       salePriceMicro,
       marginTargetPctMicro,
+      massWeightMicro,
+      massWeightUnitId,
+      packagesPerMassMicro,
     },
     ingredients,
     packaging,
@@ -680,6 +863,11 @@ export function previewCostSheet(
     massesMicro: input.masses,
     packagesMicro: input.packages,
     yieldMicro: input.yield,
+    massWeightMicro: input.massWeight,
+    yieldMethod: input.yieldMethod,
+    unitMassMicro: input.unitMass,
+    unitMassUnitId: input.unitMassUnitId,
+    massWeightUnitId: input.massWeightUnit,
     unitsPerPackage: input.unitsPerPackage,
     salePriceMicro: input.salePrice,
     marginTargetPctMicro: input.marginTargetPct,

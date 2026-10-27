@@ -63,6 +63,10 @@ interface RecipeDetail {
   massName: string | null;
   expectedYieldMicro: number;
   yieldUnitId: string;
+  yieldMethod: "directo" | "peso";
+  unitMassMicro: number | null;
+  unitMassUnitId: string | null;
+  yieldMassUnitId: string | null;
   instructions: string | null;
   validFrom: string;
   notes: string | null;
@@ -79,6 +83,11 @@ interface RecipeDetail {
 interface RecipeForm {
   massId: string;
   expectedYield: string;
+  // Método de cálculo del rendimiento + config del método por peso.
+  yieldMethod: "directo" | "peso";
+  unitMass: string;
+  unitMassUnit: string;
+  massWeightUnit: string;
   validFrom: string;
   items: { rawMaterialId: string; unitId: string; qty: string; phase: Phase }[];
 }
@@ -86,6 +95,10 @@ interface RecipeForm {
 const EMPTY_FORM = (): RecipeForm => ({
   massId: "",
   expectedYield: "",
+  yieldMethod: "directo",
+  unitMass: "",
+  unitMassUnit: "g",
+  massWeightUnit: "kg",
   validFrom: todayISO(),
   items: [{ rawMaterialId: "", unitId: "", qty: "", phase: "masa" }],
 });
@@ -168,6 +181,12 @@ export function RecipesPage() {
     massId: Number(form.massId),
     expectedYield: form.expectedYield,
     yieldUnitId: activeProduct ? activeProduct.saleUnitId : (selectedMass?.unitId ?? ""),
+    yieldMethod: form.yieldMethod,
+    // Config del método por peso: solo se envía cuando el método lo usa; al
+    // volver a directo se limpia en la receta.
+    unitMass: form.yieldMethod === "peso" ? form.unitMass : undefined,
+    unitMassUnitId: form.yieldMethod === "peso" ? form.unitMassUnit : undefined,
+    yieldMassUnitId: form.yieldMethod === "peso" ? form.massWeightUnit : undefined,
     instructions: null,
     validFrom: form.validFrom,
     notes: null,
@@ -229,6 +248,10 @@ export function RecipesPage() {
       setForm({
         massId: d.massId != null ? String(d.massId) : "",
         expectedYield: microToDecimalTrim(d.expectedYieldMicro, 6),
+        yieldMethod: d.yieldMethod === "peso" ? "peso" : "directo",
+        unitMass: d.unitMassMicro != null ? microToDecimalTrim(d.unitMassMicro, 6) : "",
+        unitMassUnit: d.unitMassUnitId ?? "g",
+        massWeightUnit: d.yieldMassUnitId ?? "kg",
         validFrom: d.validFrom,
         items: d.items.map((it) => ({
           rawMaterialId: String(it.rawMaterialId),
@@ -401,6 +424,11 @@ export function RecipesPage() {
             placeholder="0"
             onChange={(e) => setForm({ ...form, expectedYield: e.target.value })}
           />
+          {form.yieldMethod === "peso" && (
+            <span className="mt-1 block text-xs text-slate-500">
+              No se usa con el método por peso (solo respaldo).
+            </span>
+          )}
         </div>
         <div className="field">
           <label>Unidad de rendimiento</label>
@@ -409,6 +437,68 @@ export function RecipesPage() {
             disabled
           />
         </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="field">
+          <label>Método de cálculo del rendimiento</label>
+          <select
+            value={form.yieldMethod}
+            onChange={(e) =>
+              setForm({ ...form, yieldMethod: e.target.value as "directo" | "peso" })
+            }
+          >
+            <option value="directo">Rendimiento fijo por masa</option>
+            <option value="peso">Rendimiento por peso (Excel)</option>
+          </select>
+          <span className="mt-1 block text-xs text-slate-500">
+            {form.yieldMethod === "peso"
+              ? "Excel: paquetes por masa = peso de la masa × peso por unidad ÷ unidades por paquete."
+              : "Paquetes previstos = rendimiento fijo por masa × número de masas."}
+          </span>
+        </div>
+        {form.yieldMethod === "peso" && (
+          <>
+            <div className="field">
+              <label>Peso por unidad *</label>
+              <div className="flex gap-1.5">
+                <input
+                  value={form.unitMass}
+                  inputMode="decimal"
+                  placeholder="5.1"
+                  onChange={(e) => setForm({ ...form, unitMass: e.target.value })}
+                />
+                <select
+                  className="w-20"
+                  value={form.unitMassUnit}
+                  onChange={(e) => setForm({ ...form, unitMassUnit: e.target.value })}
+                >
+                  {units
+                    .filter((u) => u.dimension === "masa")
+                    .map((u) => (
+                      <option key={u.code} value={u.code}>
+                        {u.code}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="field">
+              <label>Peso de la masa en</label>
+              <select
+                value={form.massWeightUnit}
+                onChange={(e) => setForm({ ...form, massWeightUnit: e.target.value })}
+              >
+                {units
+                  .filter((u) => u.dimension === "masa")
+                  .map((u) => (
+                    <option key={u.code} value={u.code}>
+                      {u.code}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </>
+        )}
       </div>
       <div className="field">
         <label>Vigente desde *</label>
@@ -452,6 +542,7 @@ export function RecipesPage() {
   const canSave =
     Boolean(form.massId) &&
     Boolean(form.expectedYield) &&
+    (form.yieldMethod !== "peso" || Boolean(form.unitMass)) &&
     form.items.some((it) => it.rawMaterialId && it.qty);
 
   const activeProducts = products.filter((p) => p.active);

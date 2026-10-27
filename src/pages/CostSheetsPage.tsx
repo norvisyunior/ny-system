@@ -73,6 +73,11 @@ interface CostSheet {
   massUnitId: string;
   expectedYieldMicro: number;
   yieldUnitId: string;
+  // Método de cálculo del rendimiento (efectivo de la simulación).
+  yieldMethod: "directo" | "peso";
+  unitMassMicro: number | null;
+  unitMassUnitId: string | null;
+  yieldMassUnitId: string | null;
   consultationDate: string;
   sim: {
     massesMicro: number;
@@ -82,6 +87,10 @@ interface CostSheet {
     unitsTotalMicro: number;
     salePriceMicro: number;
     marginTargetPctMicro: number | null;
+    // Método por peso: masa total (en massWeightUnitId), paquetes por masa.
+    massWeightMicro: number | null;
+    massWeightUnitId: string | null;
+    packagesPerMassMicro: number | null;
   };
   ingredients: CostItemLine[];
   packaging: CostItemLine[];
@@ -162,6 +171,8 @@ const BTN_SOFT =
   "inline-flex h-9 items-center gap-2 rounded-md border border-sky-100 bg-sky-50 px-4 text-[13px] font-semibold text-[#1355d9] transition hover:bg-sky-100";
 const GREEN_BG = "#e9f7f0";
 const GREEN_TEXT = "#1d995f";
+// Unidades de masa del catálogo (peso por unidad / suma del peso del método B).
+const MASS_UNITS = ["kg", "g", "lb"];
 const BLUE_SOFT = "bg-[#e9f1fd] text-[#2159c6]";
 
 const MICRO = 1_000_000;
@@ -260,6 +271,14 @@ interface Overrides {
   masses: string;
   packages: string;
   yield: string;
+  // Método de cálculo del rendimiento ("" = como la receta).
+  method: "" | "directo" | "peso";
+  // Config en vivo del método por peso: peso por unidad (+ su unidad) y peso
+  // total de la masa (+ su unidad). "" = como la receta.
+  unitMass: string;
+  unitMassUnit: string;
+  massWeight: string;
+  massWeightUnit: string;
   unitsPerPackage: string;
   salePrice: string;
   marginTargetPct: string;
@@ -274,6 +293,11 @@ const emptyOv = (): Overrides => ({
   masses: "",
   packages: "",
   yield: "",
+  method: "",
+  unitMass: "",
+  unitMassUnit: "",
+  massWeight: "",
+  massWeightUnit: "",
   unitsPerPackage: "",
   salePrice: "",
   marginTargetPct: "30",
@@ -299,6 +323,7 @@ function buildPayload(
   versionId: string,
   ov: Overrides,
   lines: { removed: number[]; added: AddedLine[] },
+  base: CostSheet | null = null,
 ): Record<string, unknown> {
   const input: Record<string, unknown> = { recipeVersionId: Number(versionId) };
   const setDec = (key: string, s: string) => {
@@ -309,6 +334,15 @@ function buildPayload(
   setDec("packages", ov.packages);
   // Rendimiento simulado (paquetes por masa); vacío → el de la receta.
   setDec("yield", ov.yield);
+  // Config en vivo del método de rendimiento (solo si el usuario la toca).
+  if (ov.method === "directo" || ov.method === "peso") input.yieldMethod = ov.method;
+  if (ov.massWeightUnit) input.massWeightUnitId = ov.massWeightUnit;
+  setDec("unitMass", ov.unitMass);
+  setDec("massWeight", ov.massWeight);
+  // Unidad del peso por unidad: la elegida; si el usuario no la tocó pero sí
+  // escribió el peso, la de la receta; si la receta tampoco la tiene → g.
+  if (ov.unitMassUnit) input.unitMassUnitId = ov.unitMassUnit;
+  else if (input.unitMass !== undefined) input.unitMassUnitId = base?.unitMassUnitId ?? "g";
   const upp = decOrNull(ov.unitsPerPackage);
   if (upp != null && Number.isInteger(upp) && upp >= 1) input.unitsPerPackage = upp;
   setDec("salePrice", ov.salePrice);
@@ -363,6 +397,11 @@ const hasOv = (ov: Overrides): boolean =>
   ov.masses !== "" ||
   ov.packages !== "" ||
   ov.yield !== "" ||
+  ov.method !== "" ||
+  ov.unitMass !== "" ||
+  ov.unitMassUnit !== "" ||
+  ov.massWeight !== "" ||
+  ov.massWeightUnit !== "" ||
   ov.unitsPerPackage !== "" ||
   ov.salePrice !== "" ||
   (decOrNull(ov.marginTargetPct) ?? 30) !== 30 ||
@@ -969,6 +1008,11 @@ export function CostSheetsPage() {
   const pendingNav = useRef<"produccion" | "terminacion" | null>(null);
   const nav = useNavigate();
   const seq = useRef(0);
+  // Última ficha como base del preview (p. ej. unidad del peso por unidad).
+  const sheetRef = useRef<CostSheet | null>(null);
+  useEffect(() => {
+    sheetRef.current = sheet;
+  }, [sheet]);
 
   useEffect(() => {
     api
@@ -993,7 +1037,7 @@ export function CostSheetsPage() {
     const s = ++seq.current;
     setBusy(true);
     api
-      .post<CostSheet>("/cost-sheets/preview", buildPayload(v, o, lines))
+      .post<CostSheet>("/cost-sheets/preview", buildPayload(v, o, lines, sheetRef.current))
       .then((x) => {
         if (seq.current === s) {
           apply(x);
@@ -1059,6 +1103,9 @@ export function CostSheetsPage() {
     setOv((o) => ({ ...o, masses: v, packages: v !== "" ? "" : o.packages }));
   const setPackagesOv = (v: string) =>
     setOv((o) => ({ ...o, packages: v, masses: v !== "" ? "" : o.masses }));
+  // Cambiar el método en vivo: el rendimiento fijo no aplica por peso.
+  const setMethodOv = (m: "directo" | "peso") =>
+    setOv((o) => ({ ...o, method: m, yield: m === "peso" ? "" : o.yield }));
   // Editar rendimiento no rompe masas/paquetes: el no editado se rederiva… pero
   // si hay paquetes fijados de una edición previa, esos mandan (server rederiva
   // las masas). setField("yield") cubre el caso sin mutex de paquetes.
@@ -1221,6 +1268,12 @@ export function CostSheetsPage() {
           massId: sheet.massId,
           expectedYield: microToDecimalTrim(yieldMicro, 6),
           yieldUnitId: sheet.saleUnitId,
+          // Método de cálculo del rendimiento (config efectiva de la ficha).
+          yieldMethod: sheet.yieldMethod,
+          unitMass:
+            sheet.unitMassMicro != null ? microToDecimalTrim(sheet.unitMassMicro, 6) : undefined,
+          unitMassUnitId: sheet.unitMassUnitId ?? undefined,
+          yieldMassUnitId: sheet.yieldMassUnitId ?? undefined,
           instructions: vinfo.instructions,
           validFrom: vinfo.validFrom,
           notes: vinfo.notes,
@@ -1287,6 +1340,8 @@ export function CostSheetsPage() {
   const productName = sheet?.productName ?? currentRecipe?.productName ?? "";
   const sim = sheet?.sim;
   const econ = sheet?.economics;
+  // Método efectivo: override en vivo si lo hay, si no el guardado en la receta.
+  const modoPeso = (ov.method || sheet?.yieldMethod || "directo") === "peso";
 
   return (
     <div className="min-h-screen bg-[#f2f5fb] p-4 lg:p-6">
@@ -1385,6 +1440,24 @@ export function CostSheetsPage() {
 
             <div className="h-10 w-px bg-slate-100" />
 
+            <div className="min-w-[150px]">
+              <div className="mb-1.5 text-center text-[12px] font-medium text-slate-600">
+                Método de cálculo del rendimiento
+              </div>
+              <div className="flex justify-center">
+                <select
+                  className={`${INPUT} max-w-[190px]`}
+                  value={ov.method || sheet?.yieldMethod || "directo"}
+                  onChange={(e) => setMethodOv(e.target.value as "directo" | "peso")}
+                >
+                  <option value="directo">Rendimiento fijo por masa</option>
+                  <option value="peso">Rendimiento por peso (Excel)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="h-10 w-px bg-slate-100" />
+
             <div>
               <div className="mb-1.5 text-center text-[12px] font-medium text-slate-600">
                 Cantidad de masas
@@ -1401,21 +1474,90 @@ export function CostSheetsPage() {
               </div>
             </div>
 
-            <div>
-              <div className="mb-1.5 text-center text-[12px] font-medium text-slate-600">
-                Rendimiento por masa
+            {!modoPeso && (
+              <div>
+                <div className="mb-1.5 text-center text-[12px] font-medium text-slate-600">
+                  Rendimiento por masa
+                </div>
+                <div className="flex justify-center">
+                  <input
+                    className={`w-16 text-center ${ov.yield !== "" ? INPUT_OV : INPUT}`}
+                    inputMode="decimal"
+                    placeholder={sheet ? microStr(sheet.expectedYieldMicro) : ""}
+                    title="Paquetes esperados por masa (editable)"
+                    value={ov.yield}
+                    onChange={(e) => setField("yield", e.target.value)}
+                  />
+                </div>
               </div>
-              <div className="flex justify-center">
-                <input
-                  className={`w-16 text-center ${ov.yield !== "" ? INPUT_OV : INPUT}`}
-                  inputMode="decimal"
-                  placeholder={sheet ? microStr(sheet.expectedYieldMicro) : ""}
-                  title="Paquetes esperados por masa (editable)"
-                  value={ov.yield}
-                  onChange={(e) => setField("yield", e.target.value)}
-                />
-              </div>
-            </div>
+            )}
+
+            {modoPeso && (
+              <>
+                <div className="min-w-[150px]">
+                  <div className="mb-1.5 text-center text-[12px] font-medium text-slate-600">
+                    Peso total de la masa
+                  </div>
+                  <div className="flex items-center justify-center gap-1.5">
+                    <input
+                      className={`w-20 text-center ${ov.massWeight !== "" ? INPUT_OV : INPUT}`}
+                      inputMode="decimal"
+                      placeholder={
+                        sim?.massWeightMicro != null ? microStr(sim.massWeightMicro) : ""
+                      }
+                      title="Suma del peso de los ingredientes de la masa (editable)"
+                      value={ov.massWeight}
+                      onChange={(e) => setField("massWeight", e.target.value)}
+                    />
+                    <select
+                      className={`w-16 ${ov.massWeightUnit !== "" ? INPUT_OV : INPUT}`}
+                      value={ov.massWeightUnit || sim?.massWeightUnitId || "kg"}
+                      onChange={(e) =>
+                        setField(
+                          "massWeightUnit",
+                          e.target.value === (sim?.massWeightUnitId || "kg") ? "" : e.target.value,
+                        )
+                      }
+                    >
+                      {MASS_UNITS.map((u) => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="min-w-[150px]">
+                  <div className="mb-1.5 text-center text-[12px] font-medium text-slate-600">
+                    Peso por unidad
+                  </div>
+                  <div className="flex items-center justify-center gap-1.5">
+                    <input
+                      className={`w-20 text-center ${(ov.unitMass !== "" || ov.unitMassUnit !== "") ? INPUT_OV : INPUT}`}
+                      inputMode="decimal"
+                      placeholder={
+                        sheet?.unitMassMicro != null && sheet?.unitMassUnitId
+                          ? microStr(sheet.unitMassMicro)
+                          : ""
+                      }
+                      title="Peso de una unidad de producto (ej. 5.1 g)"
+                      value={ov.unitMass}
+                      onChange={(e) => setField("unitMass", e.target.value)}
+                    />
+                    <select
+                      className={`w-16 ${ov.unitMassUnit !== "" ? INPUT_OV : INPUT}`}
+                      value={ov.unitMassUnit || sheet?.unitMassUnitId || "g"}
+                      onChange={(e) =>
+                        setField("unitMassUnit", e.target.value === (sheet?.unitMassUnitId || "g") ? "" : e.target.value)
+                      }
+                    >
+                      {MASS_UNITS.map((u) => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
 
             <div>
               <div className="mb-1.5 text-center text-[12px] font-medium text-slate-600">
@@ -1432,6 +1574,12 @@ export function CostSheetsPage() {
                 />
                 <span className="text-[12px] text-slate-400">paquetes</span>
               </div>
+              {modoPeso && sim && (
+                <div className="mt-1 text-center text-[11px] text-slate-400">
+                  Unidades teóricas:{" "}
+                  <span className="font-semibold text-slate-600">{fmtWhole(sim.unitsTotalMicro)}</span>
+                </div>
+              )}
             </div>
 
             <div>
@@ -1468,6 +1616,15 @@ export function CostSheetsPage() {
               </button>
             </div>
           </div>
+
+          {/* Avisos de la ficha (config del método, ingredientes sin precio…) */}
+          {sheet && sheet.warnings.length > 0 && (
+            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-slate-600">
+              {sheet.warnings.map((w, i) => (
+                <div key={i}>{w}</div>
+              ))}
+            </div>
+          )}
 
           {/* Contenido: ficha + panel de vista previa */}
           <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
@@ -1768,6 +1925,16 @@ export function CostSheetsPage() {
                       </div>
                     )}
                   </div>
+                  {modoPeso && sim?.packagesPerMassMicro != null && (
+                    <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2.5">
+                      <span className="text-[12px] font-semibold text-slate-600">
+                        Paquetes por masa
+                      </span>
+                      <span className="whitespace-nowrap text-[14px] font-bold text-slate-800">
+                        {fmtDec(sim.packagesPerMassMicro / MICRO, 4)}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className={`mt-4 rounded-lg p-3.5 text-[12px] ${BLUE_SOFT}`}>
@@ -1848,7 +2015,16 @@ export function CostSheetsPage() {
             {removedIds.length > 0 && <li>Eliminados de la receta: {removedIds.length} línea(s).</li>}
           </ul>
           <div className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            Rendimiento por masa:{" "}
+            Método de cálculo del rendimiento:{" "}
+            <strong>
+              {sheet.yieldMethod === "peso"
+                ? "por peso (paquetes por masa = peso de la masa × peso por unidad ÷ unidades por paquete)"
+                : "fijo por masa"}
+            </strong>
+            {sheet.yieldMethod === "peso" && sheet.unitMassMicro != null && sheet.unitMassUnitId
+              ? ` · peso por unidad: ${fmtQtyEs(sheet.unitMassMicro)} ${sheet.unitMassUnitId} · peso de la masa: ${sim && sim.massWeightMicro != null ? fmtQtyEs(sim.massWeightMicro) : "—"} ${sheet.yieldMassUnitId ?? "kg"}`
+              : ""}
+            . Rendimiento por masa:{" "}
             <strong>
               {fmtQtyEs(divMicro(sheet.sim.packagesMicro, sheet.sim.massesMicro))} {sheet.saleUnitId}
             </strong>{" "}

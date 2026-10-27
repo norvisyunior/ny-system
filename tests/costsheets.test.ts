@@ -626,3 +626,222 @@ describe("Fichas de costo — rendimiento editable", () => {
     ).toThrow();
   });
 });
+
+/**
+ * Escenario método B (compatibilidad Excel, hamburguesas):
+ * - Picadillo: 63,165 kg por masa (fase masa); Nylon 1 por paquete (fase paquete).
+ * - Producto: venta 'paquete', 4 u/paq, precio 400.
+ * - Receta método 'peso': peso por unidad 5,1 g; peso de la masa = suma de los
+ *   ítems de fase masa (kg). Excel: 63,165 × 5,1 ÷ 4 = 80,535375 paquetes/masa.
+ */
+function setupPeso() {
+  const h = newDb();
+  const supplier = createSupplier(h.db, supplierInput.parse({ name: "D1" }));
+  const picadillo = createMaterial(h.db, materialInput.parse({ name: "Picadillo", unitId: "kg" }));
+  const nylon = createMaterial(h.db, materialInput.parse({ name: "Nylon", unitId: "unidad" }));
+  const sazon = createMaterial(h.db, materialInput.parse({ name: "Sazón", unitId: "unidad" }));
+  const masa = createMass(h.db, massInput.parse({ name: "Masa Picadillo", unitId: "unidad" }));
+  const product = createProduct(
+    h.db,
+    productInput.parse({ name: "Hamburguesa", saleUnitId: "paquete", unitsPerPackage: 4, price: "400" }),
+  );
+  const recipe = createRecipe(
+    h.db,
+    h.units,
+    recipeCreateInput.parse({
+      name: "Receta Hamburguesa",
+      productId: product.id,
+      version: {
+        massId: masa.id,
+        expectedYield: "80",
+        yieldUnitId: "paquete",
+        yieldMethod: "peso",
+        unitMass: "5.1",
+        unitMassUnitId: "g",
+        validFrom: "2026-01-01",
+        items: [
+          { rawMaterialId: picadillo.id, unitId: "kg", qty: "63.165", phase: "masa" },
+          { rawMaterialId: nylon.id, unitId: "unidad", qty: "1", phase: "paquete" },
+        ],
+      },
+    }),
+  );
+  createPurchase(
+    h.db,
+    h.units,
+    purchaseInput.parse({
+      supplierId: supplier.id,
+      purchaseDate: "2026-01-01",
+      items: [
+        { rawMaterialId: picadillo.id, unitId: "kg", qty: "500", unitPrice: "60" },
+        { rawMaterialId: nylon.id, unitId: "unidad", qty: "10000", unitPrice: "1" },
+      ],
+    }),
+  );
+  return {
+    h,
+    masaId: masa.id,
+    productId: product.id,
+    versionId: recipe.versionId,
+    picadilloId: picadillo.id,
+    nylonId: nylon.id,
+    sazonId: sazon.id,
+  };
+}
+
+describe("Fichas de costo — método por peso (Excel)", () => {
+  it("Paquetes por masa = peso de la masa × peso por unidad ÷ UPP (63,165 × 5,1 ÷ 4)", () => {
+    const h = setupPeso();
+    const sheet = getCostSheet(h.h.db, h.h.units, h.versionId);
+    expect(sheet.yieldMethod).toBe("peso");
+    expect(sheet.unitMassMicro).toBe(5_100_000); // 5,1 g
+    expect(sheet.unitMassUnitId).toBe("g");
+    // Peso de la masa: solo el picadillo (nylon fase paquete queda fuera).
+    expect(sheet.sim.massWeightMicro).toBe(63_165_000); // 63,165 kg
+    expect(sheet.sim.massWeightUnitId).toBe("kg");
+    // (63.165 × 5.1) ÷ 4 = 80.535375 → exacto en micros.
+    expect(sheet.sim.packagesPerMassMicro).toBe(80_535_375);
+    expect(sheet.sim.packagesMicro).toBe(80_535_375); // 1 masa por defecto
+    expect(sheet.sim.expectedPackagesMicro).toBe(80_535_375);
+  });
+
+  it("4 masas → 322,1415 paquetes y 1.288,566 unidades teóricas; nylon cuesta pero no pesa", () => {
+    const h = setupPeso();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, masses: "4" }),
+    );
+    expect(sheet.sim.packagesMicro).toBe(322_141_500); // 322,1415 paquetes
+    expect(sheet.sim.expectedPackagesMicro).toBe(322_141_500);
+    expect(sheet.sim.unitsTotalMicro).toBe(1_288_566_000); // × 4 u/paq
+    // El nylon sigue costando (1 × 322,1415 ≈ 322 unidad × 1 CUP).
+    expect(sheet.packaging).toHaveLength(1);
+    expect(sheet.costs.packagingMicro).toBe(322_141_500); // 322,1415 × 1 CUP
+  });
+
+  it("Ingrediente de masa no medible (unidad) se avisa y no aporta peso", () => {
+    const h = setupPeso();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({
+        recipeVersionId: h.versionId,
+        masses: "4",
+        addItems: [{ materialId: h.sazonId, qty: "1", phase: "masa" }],
+      }),
+    );
+    expect(sheet.sim.massWeightMicro).toBe(63_165_000); // el sazón no pesa
+    expect(sheet.warnings.some((w) => w.includes("no aporta peso"))).toBe(true);
+  });
+
+  it("Peso de la masa editable en la simulación recalcula los paquetes", () => {
+    const h = setupPeso();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, masses: "4", massWeight: "65" }),
+    );
+    expect(sheet.sim.massWeightMicro).toBe(65_000_000);
+    expect(sheet.sim.packagesPerMassMicro).toBe(82_875_000); // 65 × 5,1 ÷ 4
+    expect(sheet.sim.packagesMicro).toBe(331_500_000); // 4 × 82,875
+  });
+
+  it("Peso por unidad editable en vivo (override sin tocar la receta)", () => {
+    const h = setupPeso();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, unitMass: "5" }),
+    );
+    expect(sheet.unitMassMicro).toBe(5_000_000);
+    expect(sheet.unitMassUnitId).toBe("g"); // hereda la unidad de la receta
+    expect(sheet.sim.packagesPerMassMicro).toBe(78_956_250); // 63,165 × 5 ÷ 4
+  });
+
+  it("La suma del peso se muestra en la unidad elegida (lb)", () => {
+    const h = setupPeso();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, massWeightUnit: "lb" }),
+    );
+    expect(sheet.sim.massWeightUnitId).toBe("lb");
+    expect(sheet.yieldMassUnitId).toBe("lb"); // config efectiva para guardar
+    // 63.165 kg → lb (≈139.255); la fórmula es literal sobre lo mostrado.
+    expect(sheet.sim.massWeightMicro).toBeGreaterThan(139_200_000);
+    expect(sheet.sim.massWeightMicro).toBeLessThan(139_300_000);
+    expect(sheet.sim.packagesPerMassMicro).toBeGreaterThan(177_400_000);
+    expect(sheet.sim.packagesPerMassMicro).toBeLessThan(177_700_000);
+  });
+
+  it("El rendimiento fijo por masa se rechaza en el método por peso", () => {
+    const h = setupPeso();
+    expect(() =>
+      previewCostSheet(
+        h.h.db,
+        h.h.units,
+        costSheetInput.parse({ recipeVersionId: h.versionId, masses: "2", yield: "80" }),
+      ),
+    ).toThrow(/no aplica al método por peso/);
+  });
+
+  it("Sin peso por unidad configurado: ficha editable con peso de masa y paquetes 0", () => {
+    const h = setupPeso();
+    // Receta sin peso por unidad guardado y sin overrides: no rechaza el preview.
+    h.h.client
+      .prepare("UPDATE recipe_versions SET unit_mass_micro = NULL, unit_mass_unit_id = NULL WHERE id = ?")
+      .run(h.versionId);
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId }),
+    );
+    // El peso de la masa sigue visible (suma de ingredientes fase masa).
+    expect(sheet.sim.massWeightMicro).toBe(63_165_000);
+    expect(sheet.sim.packagesPerMassMicro).toBeNull();
+    expect(sheet.sim.packagesMicro).toBe(0);
+    expect(sheet.warnings.some((w) => w.includes("Peso por unidad"))).toBe(true);
+    // Configurando el peso por unidad en la ficha, recalcula al completo.
+    const ok = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, unitMass: "5.1", unitMassUnitId: "g" }),
+    );
+    expect(ok.sim.packagesPerMassMicro).toBe(80_535_375);
+    expect(ok.sim.packagesMicro).toBe(80_535_375);
+  });
+
+  it("Override de método en vivo a 'directo' usa el rendimiento fijo de la receta", () => {
+    const h = setupPeso();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({ recipeVersionId: h.versionId, masses: "4", yieldMethod: "directo" }),
+    );
+    expect(sheet.yieldMethod).toBe("directo");
+    expect(sheet.sim.packagesMicro).toBe(320_000_000); // 4 × 80 (receta)
+    // La receta sigue con método por peso en su config guardada.
+    const base = getCostSheet(h.h.db, h.h.units, h.versionId);
+    expect(base.yieldMethod).toBe("peso");
+  });
+
+  it("El método en vivo hereda el peso por unidad calculado y vuelve a calcular", () => {
+    const h = setupPeso();
+    const sheet = previewCostSheet(
+      h.h.db,
+      h.h.units,
+      costSheetInput.parse({
+        recipeVersionId: h.versionId,
+        masses: "2",
+        yieldMethod: "peso",
+        unitMass: "5",
+        massWeightUnit: "kg",
+      }),
+    );
+    expect(sheet.yieldMethod).toBe("peso");
+    expect(sheet.sim.massWeightUnitId).toBe("kg");
+    expect(sheet.sim.packagesPerMassMicro).toBe(78_956_250); // 63,165 × 5 ÷ 4
+    expect(sheet.sim.packagesMicro).toBe(157_912_500); // 2 × 78,95625
+  });
+});
