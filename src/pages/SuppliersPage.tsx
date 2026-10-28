@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
 import { Badge, Callout, ErrorAlert, FlowGuide, Modal, SearchInput } from "../components/ui";
+import { usePaged } from "../hooks/usePaged";
 
 interface Supplier {
   id: number;
@@ -15,17 +17,17 @@ interface Supplier {
 const EMPTY = { name: "", phone: "", address: "", notes: "", active: true };
 
 export function SuppliersPage() {
-  const [rows, setRows] = useState<Supplier[]>([]);
-  const [q, setQ] = useState("");
+  const list = usePaged<Supplier>(({ page, pageSize, search }) =>
+    api.get(
+      `/suppliers?page=${page}&pageSize=${pageSize}` +
+        (search ? `&q=${encodeURIComponent(search)}` : ""),
+    ),
+  );
+  const rows = list.rows;
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  const load = useCallback(() => {
-    api.get<Supplier[]>("/suppliers").then(setRows).catch((e: ApiError) => setError(e.message));
-  }, []);
-  useEffect(load, [load]);
 
   const openNew = () => {
     setForm(EMPTY);
@@ -59,17 +61,13 @@ export function SuppliersPage() {
       else await api.post("/suppliers", body);
       setEditing(null);
       setForm(EMPTY);
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
       setSaving(false);
     }
   };
-
-  const filtered = rows.filter((s) =>
-    s.name.toLowerCase().includes(q.toLowerCase()),
-  );
 
   return (
     <div>
@@ -88,8 +86,8 @@ export function SuppliersPage() {
         nombre es único y el ID lo asigna el sistema.
       </Callout>
       <div className="mb-4 flex items-center justify-between">
-        <SearchInput value={q} onChange={setQ} placeholder="Buscar proveedor..." />
-        <span className="text-sm text-slate-500">{filtered.length} registro(s)</span>
+        <SearchInput value={list.search} onChange={list.setSearch} placeholder="Buscar proveedor..." />
+        <span className="text-sm text-slate-500">{list.total} registro(s)</span>
       </div>
 
       <div className="card overflow-hidden">
@@ -104,14 +102,14 @@ export function SuppliersPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && (
+            {rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="py-8 text-center text-slate-400">
-                  Sin proveedores registrados.
+                  {list.loading ? "Cargando…" : "Sin proveedores registrados."}
                 </td>
               </tr>
             )}
-            {filtered.map((s) => (
+            {rows.map((s) => (
               <tr key={s.id}>
                 <td className="font-medium">{s.name}</td>
                 <td>{s.phone ?? "—"}</td>
@@ -128,6 +126,17 @@ export function SuppliersPage() {
             ))}
           </tbody>
         </table>
+        <div className="px-4 pb-3">
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            pageSize={list.pageSize}
+            rowsCount={rows.length}
+            onPage={list.setPage}
+            label="proveedores"
+          />
+        </div>
       </div>
 
       {editing !== null && (

@@ -20,6 +20,7 @@ import { transformationsRouter } from "./routes/transformations";
 import { salesRouter } from "./routes/sales";
 import { expensesRouter } from "./routes/expenses";
 import { closingsRouter } from "./routes/closings";
+import { inventoryRouter } from "./routes/inventory";
 import { dashboardRouter } from "./routes/dashboard";
 import { reportsRouter } from "./routes/reports";
 import { settingsRouter } from "./routes/settings";
@@ -107,6 +108,7 @@ function registerRoutes(app: express.Express): void {
   app.use("/api/sales", salesRouter);
   app.use("/api/expenses", expensesRouter);
   app.use("/api/closings", closingsRouter);
+  app.use("/api/inventory", inventoryRouter);
   app.use("/api/dashboard", dashboardRouter);
   app.use("/api/reports", reportsRouter);
   app.use("/api/settings", settingsRouter);

@@ -18,6 +18,7 @@ import { assertValidBusinessDate } from "../domain/dates";
 import { availableStock, estimatedAvgCost } from "../domain/fifo";
 import { decMicro, divRoundAway, mulQtyPrice } from "../domain/zod-helpers";
 import { microToDecimal, microToDecimalTrim } from "../../shared/money";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DBOrTx } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
 
@@ -342,11 +343,36 @@ export interface PlanListRow {
   createdAt: string;
 }
 
-export function listPlans(db: DBOrTx, opts: { from?: string; to?: string } = {}): PlanListRow[] {
+export function listPlans(
+  db: DBOrTx,
+  opts?: { from?: string; to?: string; q?: string },
+): PlanListRow[];
+export function listPlans(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging,
+): PageResult<PlanListRow>;
+export function listPlans(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging | undefined,
+): PlanListRow[] | PageResult<PlanListRow>;
+export function listPlans(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; q?: string } = {},
+  paging?: ListPaging,
+): PlanListRow[] | PageResult<PlanListRow> {
   const conds = [];
   if (opts.from) conds.push(sql`${productionPlans.planDate} >= ${opts.from}`);
   if (opts.to) conds.push(sql`${productionPlans.planDate} <= ${opts.to}`);
-  return db
+  if (opts.q) {
+    conds.push(
+      sql`(CAST(${productionPlans.number} AS TEXT) LIKE ${"%" + opts.q + "%"} OR ${recipes.name} LIKE ${"%" + opts.q + "%"} OR ${masses.name} LIKE ${"%" + opts.q + "%"})`,
+    );
+  }
+  const where = conds.length ? and(...conds) : undefined;
+
+  const base = db
     .select({
       id: productionPlans.id,
       number: productionPlans.number,
@@ -371,9 +397,25 @@ export function listPlans(db: DBOrTx, opts: { from?: string; to?: string } = {})
     .innerJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
     .leftJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
     .leftJoin(masses, eq(masses.id, recipeVersions.massId))
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(productionPlans.planDate), desc(productionPlans.number))
-    .all();
+    .where(where)
+    .orderBy(desc(productionPlans.planDate), desc(productionPlans.number));
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(productionPlans)
+      .innerJoin(recipeVersions, eq(recipeVersions.id, productionPlans.recipeVersionId))
+      .innerJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
+      .leftJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
+      .leftJoin(masses, eq(masses.id, recipeVersions.massId))
+      .where(where)
+      .get() as { c: number } | undefined;
+    return {
+      items: base.limit(paging.limit).offset(paging.offset ?? 0).all(),
+      total: Number(totalRow?.c ?? 0),
+    };
+  }
+  return base.all();
 }
 
 export function getPlanDetail(db: DBOrTx, id: number) {

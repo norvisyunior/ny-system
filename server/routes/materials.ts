@@ -8,6 +8,7 @@ import {
   materialInput,
   updateMaterial,
 } from "../services/materials";
+import { pageParams, pagedJson } from "./paging";
 
 export const materialsRouter = Router();
 
@@ -18,9 +19,10 @@ function handle(req: Express.Request): DbHandle {
 materialsRouter.get("/", (req, res) => {
   const q = typeof req.query.q === "string" ? req.query.q : undefined;
   const activeOnly = req.query.active === "1";
-  res.json({ ok: true, data: listMaterials(handle(req).db, { q, activeOnly }) });
+  const pp = pageParams(req);
+  const result = listMaterials(handle(req).db, { q, activeOnly }, pp);
+  pagedJson(res, pp, result);
 });
-
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
 materialsRouter.get("/:id", (req, res) => {

@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../hooks/usePaged";
 import {
   Badge,
   DayFilter,
@@ -86,8 +88,25 @@ const EMPTY_FORM = () => ({
 });
 
 export function PurchasesPage() {
-  const [rows, setRows] = useState<PurchaseRow[]>([]);
-  const [q, setQ] = useState("");
+  // Día visible: por defecto hoy; se cambia con el filtro de fecha.
+  const [date, setDate] = useState(todayISO());
+  // Alcance: "day" = solo el día elegido (como el dashboard); "all" = todas las compras.
+  const [scope, setScope] = useState<"day" | "all">("day");
+  const list = usePaged<PurchaseRow>(
+    ({ page, pageSize, search }) => {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      if (scope === "day") {
+        params.set("from", date);
+        params.set("to", date);
+      }
+      if (search) params.set("q", search);
+      return api.get(`/purchases?${params.toString()}`);
+    },
+    [date, scope],
+  );
+  const rows = list.rows;
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "form">("list");
   const [form, setForm] = useState(EMPTY_FORM());
@@ -101,19 +120,6 @@ export function PurchasesPage() {
   const [creatingSupplier, setCreatingSupplier] = useState(false);
   const [showNewSupplier, setShowNewSupplier] = useState(false);
   const [suppliersLoaded, setSuppliersLoaded] = useState(false);
-  // Día visible: por defecto hoy; se cambia con el filtro de fecha.
-  const [date, setDate] = useState(todayISO());
-  // Alcance: "day" = solo el día elegido (como el dashboard); "all" = todas las compras.
-  const [scope, setScope] = useState<"day" | "all">("day");
-
-  const load = useCallback(() => {
-    const params = scope === "day" ? `?from=${date}&to=${date}` : "";
-    api
-      .get<PurchaseRow[]>(`/purchases${params}`)
-      .then(setRows)
-      .catch((e: ApiError) => setError(e.message));
-  }, [date, scope]);
-  useEffect(load, [load]);
 
   const loadFormDeps = async () => {
     try {
@@ -216,7 +222,7 @@ export function PurchasesPage() {
         items,
       });
       setView("list");
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -239,18 +245,11 @@ export function PurchasesPage() {
     try {
       await api.post(`/purchases/${detail.id}/annul`, { reason: annulReason });
       setDetail(null);
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     }
   };
-
-  const filtered = rows.filter(
-    (r) =>
-      r.supplierName.toLowerCase().includes(q.toLowerCase()) ||
-      String(r.number).includes(q) ||
-      (r.docNumber ?? "").toLowerCase().includes(q.toLowerCase()),
-  );
 
   return (
     <div>
@@ -270,16 +269,16 @@ export function PurchasesPage() {
         }
       />
       <FlowGuide current="compras" />
-      <ErrorAlert message={error} />
+      <ErrorAlert message={error ?? list.error} />
 
       {view === "list" && (
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <SearchInput value={q} onChange={setQ} placeholder="Buscar por proveedor o número…" />
+            <SearchInput value={list.search} onChange={list.setSearch} placeholder="Buscar por proveedor o número…" />
             <div className="flex flex-wrap items-center gap-3">
               <ScopeToggle scope={scope} onChange={setScope} />
               {scope === "day" && <DayFilter date={date} onChange={setDate} />}
-              <span className="text-sm text-slate-500">{filtered.length} compra(s)</span>
+              <span className="text-sm text-slate-500">{list.total} compra(s)</span>
             </div>
           </div>
           <p className="mb-3 text-xs text-slate-500">
@@ -302,14 +301,14 @@ export function PurchasesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
+                {rows.length === 0 && (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-slate-400">
-                      Sin compras registradas.
+                      {list.loading ? "Cargando…" : "Sin compras registradas."}
                     </td>
                   </tr>
                 )}
-                {filtered.map((r) => (
+                {rows.map((r) => (
                   <tr key={r.id}>
                     <td className="font-mono font-semibold">{fmtDocNumber(r.number)}</td>
                     <td>{r.purchaseDate}</td>
@@ -333,6 +332,17 @@ export function PurchasesPage() {
                 ))}
               </tbody>
             </table>
+            <div className="px-4 pb-3">
+              <Pager
+                page={list.page}
+                pages={list.pages}
+                total={list.total}
+                pageSize={list.pageSize}
+                rowsCount={rows.length}
+                onPage={list.setPage}
+                label="compras"
+              />
+            </div>
           </div>
         </>
       )}

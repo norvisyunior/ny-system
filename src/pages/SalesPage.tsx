@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../hooks/usePaged";
 import {
   Badge,
   DayFilter,
@@ -78,9 +80,23 @@ const PAYMENT_LABELS: Record<string, string> = {
 };
 
 export function SalesPage() {
-  const [rows, setRows] = useState<SaleRow[]>([]);
+  // Día visible: por defecto hoy; se cambia con el filtro de fecha.
+  const [date, setDate] = useState(todayISO());
+  // Alcance: "day" = solo el día elegido; "all" = todos los registros.
+  const [scope, setScope] = useState<"day" | "all">("day");
+  const dateParams = scope === "day" ? `from=${date}&to=${date}` : "";
+  const list = usePaged<SaleRow>(
+    ({ page, pageSize, search }) =>
+      api.get(
+        `/sales?page=${page}&pageSize=${pageSize}` +
+          (dateParams ? `&${dateParams}` : "") +
+          (search ? `&q=${encodeURIComponent(search)}` : ""),
+      ),
+    [date, scope],
+  );
+  const rows = list.rows;
+  const [summary, setSummary] = useState<{ count: number; totalMicro: number; costMicro: number } | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
-  const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "form">("list");
   const [form, setForm] = useState({
@@ -92,19 +108,14 @@ export function SalesPage() {
   const [annulReason, setAnnulReason] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Día visible: por defecto hoy; se cambia con el filtro de fecha.
-  const [date, setDate] = useState(todayISO());
-  // Alcance: "day" = solo el día elegido; "all" = todos los registros.
-  const [scope, setScope] = useState<"day" | "all">("day");
-
-  const load = useCallback(() => {
-    const params = scope === "day" ? `?from=${date}&to=${date}` : "";
+  useEffect(() => {
     api
-      .get<SaleRow[]>(`/sales${params}`)
-      .then(setRows)
-      .catch((e: ApiError) => setError(e.message));
+      .get<{ count: number; totalMicro: number; costMicro: number }>(
+        `/sales/summary${dateParams ? `?${dateParams}` : ""}`,
+      )
+      .then(setSummary)
+      .catch(() => undefined);
   }, [date, scope]);
-  useEffect(load, [load]);
   useEffect(() => {
     api
       .get<Product[]>("/products")
@@ -169,7 +180,7 @@ export function SalesPage() {
         items,
       });
       setView("list");
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -197,18 +208,11 @@ export function SalesPage() {
     try {
       await api.post(`/sales/${detail.id}/annul`, { reason: annulReason });
       setDetail(null);
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     }
   };
-
-  const filtered = rows.filter(
-    (r) =>
-      String(r.number).includes(q) ||
-      r.paymentMethod.toLowerCase().includes(q.toLowerCase()) ||
-      r.saleDate.includes(q),
-  );
 
   const canSave = form.items.some((it) => it.productId && it.qty && it.price);
 
@@ -230,16 +234,16 @@ export function SalesPage() {
         }
       />
       <FlowGuide current="ventas" />
-      <ErrorAlert message={error} />
+      <ErrorAlert message={error ?? list.error} />
 
       {view === "list" && (
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <SearchInput value={q} onChange={setQ} placeholder="Buscar por número, fecha o método…" />
+            <SearchInput value={list.search} onChange={list.setSearch} placeholder="Buscar por número, fecha, método o producto…" />
             <div className="flex flex-wrap items-center gap-3">
               <ScopeToggle scope={scope} onChange={setScope} />
               {scope === "day" && <DayFilter date={date} onChange={setDate} />}
-              <span className="text-sm text-slate-500">{filtered.length} venta(s)</span>
+              <span className="text-sm text-slate-500">{list.total} venta(s)</span>
             </div>
           </div>
           <p className="mb-3 text-xs text-slate-500">
@@ -263,14 +267,14 @@ export function SalesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
+                {rows.length === 0 && (
                   <tr>
                     <td colSpan={9} className="py-8 text-center text-slate-400">
-                      Sin ventas registradas.
+                      {list.loading ? "Cargando…" : "Sin ventas registradas."}
                     </td>
                   </tr>
                 )}
-                {filtered.map((r) => {
+                {rows.map((r) => {
                   const margin = r.totalMicro - r.totalCostMicro;
                   const marginPct = r.totalMicro > 0 ? (margin / r.totalMicro) * 100 : 0;
                   return (
@@ -328,26 +332,37 @@ export function SalesPage() {
                   );
                 })}
               </tbody>
-              {filtered.some((r) => r.status === "confirmada") && (
+              {summary && summary.count > 0 && (
                 <tfoot>
                   <tr className="bg-slate-50">
                     <td colSpan={4} className="text-right text-xs font-bold uppercase tracking-wide text-slate-500">
                       Totales (confirmadas)
                     </td>
                     <td className="num text-sm font-bold text-slate-900">
-                      {fmtMoney(filtered.filter((r) => r.status === "confirmada").reduce((a, r) => a + r.totalMicro, 0))}
+                      {fmtMoney(summary.totalMicro)}
                     </td>
                     <td className="num text-xs text-slate-400">
-                      {fmtMoney(filtered.filter((r) => r.status === "confirmada").reduce((a, r) => a + r.totalCostMicro, 0))}
+                      {fmtMoney(summary.costMicro)}
                     </td>
                     <td className="num text-sm font-bold text-emerald-700">
-                      {fmtMoney(filtered.filter((r) => r.status === "confirmada").reduce((a, r) => a + (r.totalMicro - r.totalCostMicro), 0))}
+                      {fmtMoney(summary.totalMicro - summary.costMicro)}
                     </td>
                     <td colSpan={2}></td>
                   </tr>
                 </tfoot>
               )}
             </table>
+            <div className="px-4 pb-3">
+              <Pager
+                page={list.page}
+                pages={list.pages}
+                total={list.total}
+                pageSize={list.pageSize}
+                rowsCount={rows.length}
+                onPage={list.setPage}
+                label="ventas"
+              />
+            </div>
           </div>
         </>
       )}

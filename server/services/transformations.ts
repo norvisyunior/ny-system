@@ -22,10 +22,11 @@ import { nextDocNumber } from "../domain/counters";
 import { assertValidBusinessDate, nowISO } from "../domain/dates";
 import { availableStock, consumeFIFO, createLot, estimatedAvgCost } from "../domain/fifo";
 import { decMicro, divRoundAway, mulQtyPrice } from "../domain/zod-helpers";
-import { formatCUP, microToDecimal, microToDecimalTrim } from "../../shared/money";
+import { formatCUP, microToDecimal, microToDecimalTrim } from 
+"../../shared/money";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DBOrTx } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
-
 const outputInput = z.object({
   productId: z.number().int().positive("Producto requerido."),
   qty: decMicro({ minExclusive: true }),
@@ -603,12 +604,34 @@ export interface TransformationListRow {
 
 export function listTransformations(
   db: DBOrTx,
-  opts: { from?: string; to?: string } = {},
-): TransformationListRow[] {
+  opts?: { from?: string; to?: string; q?: string },
+): TransformationListRow[];
+export function listTransformations(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging,
+): PageResult<TransformationListRow>;
+export function listTransformations(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging | undefined,
+): TransformationListRow[] | PageResult<TransformationListRow>;
+export function listTransformations(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; q?: string } = {},
+  paging?: ListPaging,
+): TransformationListRow[] | PageResult<TransformationListRow> {
   const conds = [];
   if (opts.from) conds.push(sql`${transformations.transformDate} >= ${opts.from}`);
   if (opts.to) conds.push(sql`${transformations.transformDate} <= ${opts.to}`);
-  const rows = db
+  if (opts.q) {
+    conds.push(
+      sql`(CAST(${transformations.number} AS TEXT) LIKE ${"%" + opts.q + "%"} OR ${masses.name} LIKE ${"%" + opts.q + "%"} OR ${recipes.name} LIKE ${"%" + opts.q + "%"})`,
+    );
+  }
+  const where = conds.length ? and(...conds) : undefined;
+
+  const base = db
     .select({
       id: transformations.id,
       number: transformations.number,
@@ -633,10 +656,25 @@ export function listTransformations(
     .leftJoin(recipeVersions, eq(recipeVersions.id, transformations.recipeVersionId))
     .leftJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
     .leftJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(transformations.transformDate), desc(transformations.number))
-    .all();
-  return rows;
+    .where(where)
+    .orderBy(desc(transformations.transformDate), desc(transformations.number));
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(transformations)
+      .innerJoin(masses, eq(masses.id, transformations.massId))
+      .leftJoin(recipeVersions, eq(recipeVersions.id, transformations.recipeVersionId))
+      .leftJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
+      .leftJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
+      .where(where)
+      .get() as { c: number } | undefined;
+    return {
+      items: base.limit(paging.limit).offset(paging.offset ?? 0).all(),
+      total: Number(totalRow?.c ?? 0),
+    };
+  }
+  return base.all();
 }
 
 export function getTransformationDetail(db: DBOrTx, id: number) {

@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle2, X } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { microToDecimalTrim } from "@shared/money";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../hooks/usePaged";
 import {
   Badge,
   DayFilter,
@@ -130,11 +132,9 @@ const laborValidText = (v: string): boolean => {
 };
 
 export function ProductionsPage() {
-  const [rows, setRows] = useState<ProductionRow[]>([]);
   const [recipes, setRecipes] = useState<RecipeOption[]>([]);
   const [plans, setPlans] = useState<PlanOption[]>([]);
   const [rates, setRates] = useState<LaborRateRow[]>([]);
-  const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "form">("list");
   const [form, setForm] = useState({
@@ -169,15 +169,21 @@ export function ProductionsPage() {
   const [date, setDate] = useState(todayISO());
   // Alcance: "day" = solo el día elegido; "all" = todos los registros.
   const [scope, setScope] = useState<"day" | "all">("day");
-
-  const load = useCallback(() => {
-    const params = scope === "day" ? `?from=${date}&to=${date}` : "";
-    api
-      .get<ProductionRow[]>(`/productions${params}`)
-      .then(setRows)
-      .catch((e: ApiError) => setError(e.message));
-  }, [date, scope]);
-  useEffect(load, [load]);
+  const list = usePaged<ProductionRow>(
+    ({ page, pageSize, search }) => {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      if (scope === "day") {
+        params.set("from", date);
+        params.set("to", date);
+      }
+      if (search) params.set("q", search);
+      return api.get(`/productions?${params.toString()}`);
+    },
+    [date, scope],
+  );
+  const rows = list.rows;
   useEffect(() => {
     Promise.all([
       api.get<RecipeOption[]>("/recipes"),
@@ -300,7 +306,7 @@ export function ProductionsPage() {
         });
       }
       setView("list");
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -328,18 +334,11 @@ export function ProductionsPage() {
     try {
       await api.post(`/productions/${detail.id}/annul`, { reason: annulReason });
       setDetail(null);
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     }
   };
-
-  const filtered = rows.filter(
-    (r) =>
-      r.recipeName.toLowerCase().includes(q.toLowerCase()) ||
-      r.massName.toLowerCase().includes(q.toLowerCase()) ||
-      String(r.number).includes(q),
-  );
 
   const massesInt = isPositiveInt(form.massesCount);
   const laborValid = laborValidText(form.laborCost);
@@ -407,11 +406,11 @@ export function ProductionsPage() {
             </div>
           )}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <SearchInput value={q} onChange={setQ} placeholder="Buscar por receta, masa o número…" />
+            <SearchInput value={list.search} onChange={list.setSearch} placeholder="Buscar por receta, masa o número…" />
             <div className="flex flex-wrap items-center gap-3">
               <ScopeToggle scope={scope} onChange={setScope} />
               {scope === "day" && <DayFilter date={date} onChange={setDate} />}
-              <span className="text-sm text-slate-500">{filtered.length} producción(es)</span>
+              <span className="text-sm text-slate-500">{list.total} producción(es)</span>
             </div>
           </div>
           <p className="mb-3 text-xs text-slate-500">
@@ -436,14 +435,14 @@ export function ProductionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
+                {rows.length === 0 && (
                   <tr>
                     <td colSpan={10} className="py-8 text-center text-slate-400">
-                      Sin producciones registradas.
+                      {list.loading ? "Cargando…" : "Sin producciones registradas."}
                     </td>
                   </tr>
                 )}
-                {filtered.map((r) => (
+                {rows.map((r) => (
                   <tr key={r.id}>
                     <td className="font-mono font-semibold">{fmtDocNumber(r.number)}</td>
                     <td>{r.productionDate}</td>
@@ -471,6 +470,17 @@ export function ProductionsPage() {
                 ))}
               </tbody>
             </table>
+            <div className="px-4 pb-3">
+              <Pager
+                page={list.page}
+                pages={list.pages}
+                total={list.total}
+                pageSize={list.pageSize}
+                rowsCount={rows.length}
+                onPage={list.setPage}
+                label="producciones"
+              />
+            </div>
           </div>
         </>
       )}

@@ -8,6 +8,7 @@ import {
   purchaseInput,
 } from "../services/purchases";
 import { handle, idParam } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const purchasesRouter = Router();
 
@@ -20,7 +21,9 @@ const listQuery = z.object({
 
 purchasesRouter.get("/", (req, res) => {
   const opts = listQuery.parse(req.query);
-  res.json({ ok: true, data: listPurchases(handle(req).db, opts) });
+  const pp = pageParams(req);
+  const result = listPurchases(handle(req).db, opts, pp);
+  pagedJson(res, pp, result);
 });
 
 purchasesRouter.get("/:id", (req, res) => {

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../hooks/usePaged";
 import { Badge, DayFilter, ErrorAlert, FlowGuide, Modal, fmtMoney, todayISO } from "../components/ui";
 import { microToDecimalTrim } from "@shared/money";
 
@@ -75,7 +77,6 @@ function parseMicro(raw: string): number | null {
 export function ClosingsPage() {
   const [date, setDate] = useState(todayISO());
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [list, setList] = useState<ClosingListRow[]>([]);
   const [detail, setDetail] = useState<ClosingDetail | null>(null);
   const [counted, setCounted] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -106,9 +107,9 @@ export function ClosingsPage() {
     scrollTop();
   };
 
-  const loadList = useCallback(() => {
-    api.get<ClosingListRow[]>("/closings").then(setList).catch(() => undefined);
-  }, []);
+  const closings = usePaged<ClosingListRow>(({ page, pageSize }) =>
+    api.get(`/closings?page=${page}&pageSize=${pageSize}`),
+  );
 
   const loadDate = useCallback(
     async (d: string) => {
@@ -135,8 +136,7 @@ export function ClosingsPage() {
 
   useEffect(() => {
     loadDate(date);
-    loadList();
-  }, [date, loadDate, loadList]);
+  }, [date, loadDate]);
 
   const diffOf = (it: PreviewItem): number | null => {
     const micro = parseMicro(counted[key(it)] ?? "");
@@ -171,7 +171,7 @@ export function ClosingsPage() {
         notes: notes || null,
       });
       await loadDate(date);
-      loadList();
+      closings.reload();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -185,7 +185,7 @@ export function ClosingsPage() {
       setReopenOpen(false);
       setReopenReason("");
       await loadDate(date);
-      loadList();
+      closings.reload();
     } catch (e) {
       setError((e as ApiError).message);
     }
@@ -201,7 +201,7 @@ export function ClosingsPage() {
         actions={<DayFilter date={date} onChange={setDate} />}
       />
       <FlowGuide current="cierre" />
-      <ErrorAlert message={error} />
+      <ErrorAlert message={error ?? closings.error} />
 
       {preview && (
         <>
@@ -393,14 +393,14 @@ export function ClosingsPage() {
               </tr>
             </thead>
             <tbody>
-              {list.length === 0 && (
+              {closings.rows.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-6 text-center text-slate-400">
-                    Aún no hay días cerrados.
+                    {closings.loading ? "Cargando…" : "Aún no hay días cerrados."}
                   </td>
                 </tr>
               )}
-              {list.map((r) => (
+              {closings.rows.map((r) => (
                 <tr key={r.businessDate}>
                   <td className="font-semibold">{r.businessDate}</td>
                   <td className="num">{fmtMoney(r.salesTotalMicro)}</td>
@@ -421,6 +421,17 @@ export function ClosingsPage() {
               ))}
             </tbody>
           </table>
+          <div className="px-4 pb-3">
+            <Pager
+              page={closings.page}
+              pages={closings.pages}
+              total={closings.total}
+              pageSize={closings.pageSize}
+              rowsCount={closings.rows.length}
+              onPage={closings.setPage}
+              label="cierres"
+            />
+          </div>
         </div>
       </div>
 

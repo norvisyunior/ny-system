@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { microToDecimalTrim } from "@shared/money";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../hooks/usePaged";
 import {
   Badge,
   DayFilter,
@@ -166,12 +168,10 @@ const laborValidText = (v: string): boolean => {
 };
 
 export function TransformationsPage() {
-  const [rows, setRows] = useState<TransformationRow[]>([]);
   const [masses, setMasses] = useState<Mass[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [recipes, setRecipes] = useState<RecipeOption[]>([]);
   const [rates, setRates] = useState<LaborRateRow[]>([]);
-  const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "form">("list");
   const [form, setForm] = useState({
@@ -198,15 +198,21 @@ export function TransformationsPage() {
   const [date, setDate] = useState(todayISO());
   // Alcance: "day" = solo el día elegido; "all" = todos los registros.
   const [scope, setScope] = useState<"day" | "all">("day");
-
-  const load = useCallback(() => {
-    const params = scope === "day" ? `?from=${date}&to=${date}` : "";
-    api
-      .get<TransformationRow[]>(`/transformations${params}`)
-      .then(setRows)
-      .catch((e: ApiError) => setError(e.message));
-  }, [date, scope]);
-  useEffect(load, [load]);
+  const list = usePaged<TransformationRow>(
+    ({ page, pageSize, search }) => {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      if (scope === "day") {
+        params.set("from", date);
+        params.set("to", date);
+      }
+      if (search) params.set("q", search);
+      return api.get(`/transformations?${params.toString()}`);
+    },
+    [date, scope],
+  );
+  const rows = list.rows;
   useEffect(() => {
     Promise.all([
       api.get<Mass[]>("/masses"),
@@ -368,7 +374,7 @@ export function TransformationsPage() {
           .map((o) => ({ productId: Number(o.productId), qty: o.qty })),
       });
       setView("list");
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -396,18 +402,11 @@ export function TransformationsPage() {
     try {
       await api.post(`/transformations/${detail.id}/annul`, { reason: annulReason });
       setDetail(null);
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     }
   };
-
-  const filtered = rows.filter(
-    (r) =>
-      r.massName.toLowerCase().includes(q.toLowerCase()) ||
-      (r.recipeName ?? "").toLowerCase().includes(q.toLowerCase()) ||
-      String(r.number).includes(q),
-  );
 
   const canSave =
     Boolean(form.massId) &&
@@ -433,16 +432,16 @@ export function TransformationsPage() {
         }
       />
       <FlowGuide current="terminacion" />
-      <ErrorAlert message={error} />
+      <ErrorAlert message={error ?? list.error} />
 
       {view === "list" && (
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <SearchInput value={q} onChange={setQ} placeholder="Buscar por masa, receta o número…" />
+            <SearchInput value={list.search} onChange={list.setSearch} placeholder="Buscar por masa, receta o número…" />
             <div className="flex flex-wrap items-center gap-3">
               <ScopeToggle scope={scope} onChange={setScope} />
               {scope === "day" && <DayFilter date={date} onChange={setDate} />}
-              <span className="text-sm text-slate-500">{filtered.length} transformación(es)</span>
+              <span className="text-sm text-slate-500">{list.total} transformación(es)</span>
             </div>
           </div>
           <p className="mb-3 text-xs text-slate-500">
@@ -467,14 +466,14 @@ export function TransformationsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
+                {rows.length === 0 && (
                   <tr>
                     <td colSpan={10} className="py-8 text-center text-slate-400">
-                      Sin transformaciones registradas.
+                      {list.loading ? "Cargando…" : "Sin transformaciones registradas."}
                     </td>
                   </tr>
                 )}
-                {filtered.map((r) => (
+                {rows.map((r) => (
                   <tr key={r.id}>
                     <td className="font-mono font-semibold">{fmtDocNumber(r.number)}</td>
                     <td>{r.transformDate}</td>
@@ -524,6 +523,17 @@ export function TransformationsPage() {
                 ))}
               </tbody>
             </table>
+            <div className="px-4 pb-3">
+              <Pager
+                page={list.page}
+                pages={list.pages}
+                total={list.total}
+                pageSize={list.pageSize}
+                rowsCount={rows.length}
+                onPage={list.setPage}
+                label="transformaciones"
+              />
+            </div>
           </div>
         </>
       )}

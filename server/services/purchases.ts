@@ -16,6 +16,7 @@ import { assertValidBusinessDate, nowISO } from "../domain/dates";
 import { createLot } from "../domain/fifo";
 import { decMicro, mulQtyPrice, divRoundAway } from "../domain/zod-helpers";
 import { formatCUP } from "../../shared/money";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DB } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
 
@@ -187,18 +188,35 @@ export interface PurchaseListRow {
 
 export function listPurchases(
   db: DB,
+  opts?: { from?: string; to?: string; supplierId?: number; q?: string },
+): PurchaseListRow[];
+export function listPurchases(
+  db: DB,
+  opts: { from?: string; to?: string; supplierId?: number; q?: string } | undefined,
+  paging: ListPaging,
+): PageResult<PurchaseListRow>;
+export function listPurchases(
+  db: DB,
+  opts: { from?: string; to?: string; supplierId?: number; q?: string } | undefined,
+  paging: ListPaging | undefined,
+): PurchaseListRow[] | PageResult<PurchaseListRow>;
+export function listPurchases(
+  db: DB,
   opts: { from?: string; to?: string; supplierId?: number; q?: string } = {},
-): PurchaseListRow[] {
+  paging?: ListPaging,
+): PurchaseListRow[] | PageResult<PurchaseListRow> {
   const conds = [];
   if (opts.from) conds.push(sql`${purchases.purchaseDate} >= ${opts.from}`);
   if (opts.to) conds.push(sql`${purchases.purchaseDate} <= ${opts.to}`);
   if (opts.supplierId) conds.push(eq(purchases.supplierId, opts.supplierId));
   if (opts.q) {
     conds.push(
-      sql`(${purchases.docNumber} LIKE ${"%" + opts.q + "%"} OR CAST(${purchases.number} AS TEXT) LIKE ${"%" + opts.q + "%"})`,
+      sql`(${purchases.docNumber} LIKE ${"%" + opts.q + "%"} OR CAST(${purchases.number} AS TEXT) LIKE ${"%" + opts.q + "%"} OR ${suppliers.name} LIKE ${"%" + opts.q + "%"})`,
     );
   }
-  return db
+  const where = and(...conds);
+
+  const base = db
     .select({
       id: purchases.id,
       number: purchases.number,
@@ -211,9 +229,22 @@ export function listPurchases(
     })
     .from(purchases)
     .innerJoin(suppliers, eq(suppliers.id, purchases.supplierId))
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(purchases.purchaseDate), desc(purchases.number))
-    .all();
+    .where(where)
+    .orderBy(desc(purchases.purchaseDate), desc(purchases.number));
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(purchases)
+      .innerJoin(suppliers, eq(suppliers.id, purchases.supplierId))
+      .where(where)
+      .get() as { c: number } | undefined;
+    return {
+      items: base.limit(paging.limit).offset(paging.offset ?? 0).all(),
+      total: Number(totalRow?.c ?? 0),
+    };
+  }
+  return base.all();
 }
 
 export function getPurchaseDetail(db: DB, id: number) {

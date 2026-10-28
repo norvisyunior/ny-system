@@ -12,6 +12,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { conflictError, domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
+import type { ListPaging, PageResult } from "../domain/paging";
 import {
   assertValidBusinessDate,
   lastClosedDate,
@@ -349,16 +350,46 @@ export interface ClosingRow {
   notes: string | null;
 }
 
-export function listClosings(db: DBOrTx, opts: { from?: string; to?: string } = {}): ClosingRow[] {
+export function listClosings(
+  db: DBOrTx,
+  opts?: { from?: string; to?: string },
+): ClosingRow[];
+export function listClosings(
+  db: DBOrTx,
+  opts: { from?: string; to?: string } | undefined,
+  paging: ListPaging,
+): PageResult<ClosingRow>;
+export function listClosings(
+  db: DBOrTx,
+  opts: { from?: string; to?: string } | undefined,
+  paging: ListPaging | undefined,
+): ClosingRow[] | PageResult<ClosingRow>;
+export function listClosings(
+  db: DBOrTx,
+  opts: { from?: string; to?: string } = {},
+  paging?: ListPaging,
+): ClosingRow[] | PageResult<ClosingRow> {
   const conds = [];
   if (opts.from) conds.push(sql`${dailyClosings.businessDate} >= ${opts.from}`);
   if (opts.to) conds.push(sql`${dailyClosings.businessDate} <= ${opts.to}`);
-  return db
+  const where = conds.length ? and(...conds) : undefined;
+  const base = db
     .select()
     .from(dailyClosings)
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(sql`${dailyClosings.businessDate} DESC`)
-    .all();
+    .where(where)
+    .orderBy(sql`${dailyClosings.businessDate} DESC`);
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(dailyClosings)
+      .where(where)
+      .get() as { c: number } | undefined;
+    return {
+      items: base.limit(paging.limit).offset(paging.offset ?? 0).all(),
+      total: Number(totalRow?.c ?? 0),
+    };
+  }
+  return base.all();
 }
 
 export function getClosing(db: DBOrTx, date: string) {

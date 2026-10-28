@@ -3,6 +3,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DB } from "../domain/types";
 
 export const supplierInput = z.object({
@@ -14,12 +15,51 @@ export const supplierInput = z.object({
 });
 export type SupplierInput = z.infer<typeof supplierInput>;
 
-export function listSuppliers(db: DB) {
-  return db
-    .select()
-    .from(suppliers)
-    .orderBy(asc(suppliers.name))
-    .all();
+export function listSuppliers(
+  db: DB,
+  opts?: { q?: string; activeOnly?: boolean },
+): (typeof suppliers.$inferSelect)[];
+export function listSuppliers(
+  db: DB,
+  opts: { q?: string; activeOnly?: boolean } | undefined,
+  paging: ListPaging,
+): PageResult<typeof suppliers.$inferSelect>;
+export function listSuppliers(
+  db: DB,
+  opts: { q?: string; activeOnly?: boolean } | undefined,
+  paging: ListPaging | undefined,
+): (typeof suppliers.$inferSelect)[] | PageResult<typeof suppliers.$inferSelect>;
+export function listSuppliers(
+  db: DB,
+  opts: { q?: string; activeOnly?: boolean } = {},
+  paging?: ListPaging,
+) {
+  const conds = [];
+  if (opts.q) conds.push(sql`(${suppliers.name} LIKE ${"%" + opts.q + "%"})`);
+  if (opts.activeOnly) conds.push(eq(suppliers.active, true));
+  const where = conds.length ? sql.join(conds, sql` AND `) : undefined;
+
+  const build = (rows: (typeof suppliers.$inferSelect)[]) => rows;
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(suppliers)
+      .where(where)
+      .get() as { c: number } | undefined;
+    const items = build(
+      db
+        .select()
+        .from(suppliers)
+        .where(where)
+        .orderBy(asc(suppliers.name))
+        .limit(paging.limit)
+        .offset(paging.offset ?? 0)
+        .all(),
+    );
+    return { items, total: Number(totalRow?.c ?? 0) } satisfies PageResult<typeof items[number]>;
+  }
+  return build(db.select().from(suppliers).where(where).orderBy(asc(suppliers.name)).all());
 }
 
 export function createSupplier(db: DB, input: SupplierInput) {

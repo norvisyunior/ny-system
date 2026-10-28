@@ -5,12 +5,13 @@
  * ni afectan operaciones reales.
  */
 import { laborRates, masses, finishedProducts } from "../../db/schema";
-import { eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
 import { decMicro } from "../domain/zod-helpers";
 import { formatCUP } from "../../shared/money";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DBOrTx } from "../domain/types";
 
 export const laborRateInput = z.object({
@@ -33,8 +34,14 @@ export interface LaborRateRow {
   updatedAt: string | null;
 }
 
-export function listLaborRates(db: DBOrTx): LaborRateRow[] {
-  const rows = db
+export function listLaborRates(db: DBOrTx): LaborRateRow[];
+export function listLaborRates(db: DBOrTx, paging: ListPaging): PageResult<LaborRateRow>;
+export function listLaborRates(
+  db: DBOrTx,
+  paging: ListPaging | undefined,
+): LaborRateRow[] | PageResult<LaborRateRow>;
+export function listLaborRates(db: DBOrTx, paging?: ListPaging): LaborRateRow[] | PageResult<LaborRateRow> {
+  const base = db
     .select({
       id: laborRates.id,
       kind: laborRates.kind,
@@ -47,18 +54,41 @@ export function listLaborRates(db: DBOrTx): LaborRateRow[] {
     })
     .from(laborRates)
     .leftJoin(masses, eq(masses.id, laborRates.massId))
-    .leftJoin(finishedProducts, eq(finishedProducts.id, laborRates.productId))
-    .all();
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind === "terminacion" ? "terminacion" : "masa",
-    massId: r.massId,
-    productId: r.productId,
-    itemLabel: r.kind === "masa" ? (r.massName ?? null) : (r.productName ?? null),
-    rateMicro: r.rateMicro,
-    unitLabel: r.kind === "masa" ? "por masa" : "por unidad individual",
-    updatedAt: r.updatedAt,
-  }));
+    .leftJoin(finishedProducts, eq(finishedProducts.id, laborRates.productId));
+
+  type RateSelectRow = {
+    id: number;
+    kind: string;
+    massId: number | null;
+    productId: number | null;
+    massName: string | null;
+    productName: string | null;
+    rateMicro: number;
+    updatedAt: string | null;
+  };
+  const map = (rows: RateSelectRow[]) =>
+    rows.map((r): LaborRateRow => ({
+      id: r.id,
+      kind: r.kind === "terminacion" ? "terminacion" : "masa",
+      massId: r.massId,
+      productId: r.productId,
+      itemLabel: r.kind === "masa" ? (r.massName ?? null) : (r.productName ?? null),
+      rateMicro: r.rateMicro,
+      unitLabel: r.kind === "masa" ? "por masa" : "por unidad individual",
+      updatedAt: r.updatedAt,
+    }));
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(laborRates)
+      .get() as { c: number } | undefined;
+    return {
+      items: map(base.orderBy(asc(laborRates.id)).limit(paging.limit).offset(paging.offset ?? 0).all()),
+      total: Number(totalRow?.c ?? 0),
+    };
+  }
+  return map(base.orderBy(asc(laborRates.id)).all());
 }
 
 export function setLaborRate(db: DBOrTx, input: LaborRateInput): LaborRateRow {

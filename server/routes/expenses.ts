@@ -7,6 +7,7 @@ import {
   listExpenses,
 } from "../services/expenses";
 import { handle, idParam } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const expensesRouter = Router();
 
@@ -14,11 +15,14 @@ const listQuery = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   category: z.string().max(60).optional(),
+  q: z.string().max(60).optional(),
 });
 
 expensesRouter.get("/", (req, res) => {
   const opts = listQuery.parse(req.query);
-  res.json({ ok: true, data: listExpenses(handle(req).db, opts) });
+  const pp = pageParams(req);
+  const result = listExpenses(handle(req).db, opts, pp);
+  pagedJson(res, pp, result);
 });
 
 expensesRouter.post("/", (req, res) => {

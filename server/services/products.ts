@@ -1,11 +1,12 @@
 import { finishedProducts, priceHistory, stockLots, inventoryMovements, units } from "../../db/schema";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
 import { decMicro } from "../domain/zod-helpers";
 import { formatCUP, mulQtyPrice } from "../../shared/money";
 import { todayISO, nowISO } from "../domain/dates";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DBOrTx } from "../domain/types";
 
 export const productInput = z.object({
@@ -34,31 +35,85 @@ export interface ProductListRow {
   stockValueMicro: number;
 }
 
-export function listProducts(db: DBOrTx): ProductListRow[] {
-  const rows = db.select().from(finishedProducts).orderBy(asc(finishedProducts.name)).all();
-  const values = db
-    .select({
-      itemId: stockLots.itemId,
-      total: sql<number>`COALESCE(SUM(${stockLots.qtyRemainingMicro} * ${stockLots.unitCostMicro}), 0)`,
-    })
-    .from(stockLots)
-    .where(and(eq(stockLots.itemType, "product"), isNull(stockLots.cancelledAt)))
-    .groupBy(stockLots.itemId)
-    .all();
-  const valueBy = new Map(values.map((v) => [v.itemId, Math.trunc(Number(v.total) / 1_000_000)]));
-  return rows.map((p) => ({
-    id: p.id,
-    name: p.name,
-    category: p.category,
-    presentation: p.presentation,
-    saleUnitId: p.saleUnitId,
-    unitsPerPackage: p.unitsPerPackage,
-    priceMicro: p.priceMicro,
-    stockMicro: p.stockMicro,
-    minStockMicro: p.minStockMicro,
-    active: p.active,
-    stockValueMicro: valueBy.get(p.id) ?? 0,
-  }));
+export function listProducts(
+  db: DBOrTx,
+  opts?: { q?: string; category?: string },
+): ProductListRow[];
+export function listProducts(
+  db: DBOrTx,
+  opts: { q?: string; category?: string } | undefined,
+  paging: ListPaging,
+): PageResult<ProductListRow>;
+export function listProducts(
+  db: DBOrTx,
+  opts: { q?: string; category?: string } | undefined,
+  paging: ListPaging | undefined,
+): ProductListRow[] | PageResult<ProductListRow>;
+export function listProducts(
+  db: DBOrTx,
+  opts: { q?: string; category?: string } = {},
+  paging?: ListPaging,
+): ProductListRow[] | PageResult<ProductListRow> {
+  const conds = [];
+  if (opts.q) {
+    conds.push(
+      sql`(${finishedProducts.name} LIKE ${"%" + opts.q + "%"} OR ${finishedProducts.category} LIKE ${"%" + opts.q + "%"})`,
+    );
+  }
+  if (opts.category) conds.push(eq(finishedProducts.category, opts.category));
+  const where = conds.length ? and(...conds) : undefined;
+
+  const build = (rows: (typeof finishedProducts.$inferSelect)[]): ProductListRow[] => {
+    const ids = rows.map((r) => r.id);
+    if (ids.length === 0) return [];
+    const values = db
+      .select({
+        itemId: stockLots.itemId,
+        total: sql<number>`COALESCE(SUM(${stockLots.qtyRemainingMicro} * ${stockLots.unitCostMicro}), 0)`,
+      })
+      .from(stockLots)
+      .where(
+        and(
+          eq(stockLots.itemType, "product"),
+          isNull(stockLots.cancelledAt),
+          inArray(stockLots.itemId, ids),
+        ),
+      )
+      .groupBy(stockLots.itemId)
+      .all();
+    const valueBy = new Map(values.map((v) => [v.itemId, Math.trunc(Number(v.total) / 1_000_000)]));
+    return rows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      category: p.category,
+      presentation: p.presentation,
+      saleUnitId: p.saleUnitId,
+      unitsPerPackage: p.unitsPerPackage,
+      priceMicro: p.priceMicro,
+      stockMicro: p.stockMicro,
+      minStockMicro: p.minStockMicro,
+      active: p.active,
+      stockValueMicro: valueBy.get(p.id) ?? 0,
+    }));
+  };
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(finishedProducts)
+      .where(where)
+      .get() as { c: number } | undefined;
+    const rows = db
+      .select()
+      .from(finishedProducts)
+      .where(where)
+      .orderBy(asc(finishedProducts.name))
+      .limit(paging.limit)
+      .offset(paging.offset ?? 0)
+      .all();
+    return { items: build(rows), total: Number(totalRow?.c ?? 0) };
+  }
+  return build(db.select().from(finishedProducts).where(where).orderBy(asc(finishedProducts.name)).all());
 }
 
 export function createProduct(db: DBOrTx, input: ProductInput) {

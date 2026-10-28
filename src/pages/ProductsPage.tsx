@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { StockAdjustModal, type StockAdjustTarget } from "../components/StockAdjustModal";
 import {
   Badge,
   ErrorAlert,
@@ -11,6 +13,7 @@ import {
   stockLevel,
   FlowGuide,
 } from "../components/ui";
+import { usePaged } from "../hooks/usePaged";
 import { microToDecimal } from "@shared/money";
 
 interface ProductRow {
@@ -72,19 +75,29 @@ const EMPTY = {
 };
 
 export function ProductsPage() {
-  const [rows, setRows] = useState<ProductRow[]>([]);
+  const list = usePaged<ProductRow>(({ page, pageSize, search }) =>
+    api.get(
+      `/products?page=${page}&pageSize=${pageSize}` +
+        (search ? `&q=${encodeURIComponent(search)}` : ""),
+    ),
+  );
+  const rows = list.rows;
   const [units, setUnits] = useState<Unit[]>([]);
-  const [q, setQ] = useState("");
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<ProductDetail | null>(null);
+  const [adjustTarget, setAdjustTarget] = useState<StockAdjustTarget | null>(null);
 
-  const load = useCallback(() => {
-    api.get<ProductRow[]>("/products").then(setRows).catch((e: ApiError) => setError(e.message));
+  const openDetail = useCallback((id: number) => {
+    api.get<ProductDetail>(`/products/${id}`).then(setDetail).catch(() => undefined);
   }, []);
-  useEffect(load, [load]);
+  useEffect(() => {
+    if (detail && rows.some((p) => p.id === detail.product.id)) {
+      openDetail(detail.product.id);
+    }
+  }, [rows]); // refresca detalle al recargar la lista
   useEffect(() => {
     api.get<Unit[]>("/units").then(setUnits).catch(() => undefined);
   }, []);
@@ -126,27 +139,13 @@ export function ProductsPage() {
       if (editing !== null && editing !== "new") await api.put(`/products/${editing}`, body);
       else await api.post("/products", body);
       setEditing(null);
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
       setSaving(false);
     }
   };
-
-  const openDetail = async (id: number) => {
-    try {
-      setDetail(await api.get<ProductDetail>(`/products/${id}`));
-    } catch (e) {
-      setError((e as ApiError).message);
-    }
-  };
-
-  const filtered = rows.filter(
-    (p) =>
-      p.name.toLowerCase().includes(q.toLowerCase()) ||
-      (p.category ?? "").toLowerCase().includes(q.toLowerCase()),
-  );
 
   const detailLevel = detail
     ? stockLevel(detail.product.stockMicro, detail.product.minStockMicro)
@@ -174,11 +173,11 @@ export function ProductsPage() {
         }
       />
       <FlowGuide current="catalogos" />
-      <ErrorAlert message={error} />
+      <ErrorAlert message={error ?? list.error} />
 
       <div className="mb-4 flex items-center justify-between">
-        <SearchInput value={q} onChange={setQ} placeholder="Buscar por nombre o categoría…" />
-        <span className="text-sm text-slate-500">{filtered.length} producto(s)</span>
+        <SearchInput value={list.search} onChange={list.setSearch} placeholder="Buscar por nombre o categoría…" />
+        <span className="text-sm text-slate-500">{list.total} producto(s)</span>
       </div>
 
       <div className="card overflow-hidden">
@@ -187,7 +186,6 @@ export function ProductsPage() {
             <tr>
               <th>Nombre</th>
               <th>Categoría</th>
-              <th>Presentación</th>
               <th className="num">Precio</th>
               <th className="center">Stock</th>
               <th className="num">Valor FIFO</th>
@@ -196,20 +194,19 @@ export function ProductsPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && (
+            {rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-slate-400">
-                  Sin productos registrados.
+                <td colSpan={7} className="py-8 text-center text-slate-400">
+                  {list.loading ? "Cargando…" : "Sin productos registrados."}
                 </td>
               </tr>
             )}
-            {filtered.map((p) => {
+            {rows.map((p) => {
               const level = stockLevel(p.stockMicro, p.minStockMicro);
               return (
                 <tr key={p.id}>
                   <td className="font-medium">{p.name}</td>
                   <td>{p.category ?? "—"}</td>
-                  <td className="text-xs text-slate-500">{p.presentation ?? "—"}</td>
                   <td className="num font-semibold">{fmtMoney(p.priceMicro)}</td>
                   <td className="center">
                     <span className={`stock-chip ${level}`}>
@@ -225,8 +222,23 @@ export function ProductsPage() {
                     <button className="btn btn-secondary mr-2" onClick={() => openDetail(p.id)}>
                       Ver
                     </button>
-                    <button className="btn btn-secondary" onClick={() => openEdit(p)}>
+                    <button className="btn btn-secondary mr-2" onClick={() => openEdit(p)}>
                       Editar
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      title="Ajustar stock exacto o registrar merma"
+                      onClick={() =>
+                        setAdjustTarget({
+                          itemType: "product",
+                          itemId: p.id,
+                          name: p.name,
+                          unitId: p.saleUnitId,
+                          stockMicro: p.stockMicro,
+                        })
+                      }
+                    >
+                      Ajustar / Merma
                     </button>
                   </td>
                 </tr>
@@ -234,6 +246,17 @@ export function ProductsPage() {
             })}
           </tbody>
         </table>
+        <div className="px-4 pb-3">
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            pageSize={list.pageSize}
+            rowsCount={rows.length}
+            onPage={list.setPage}
+            label="productos"
+          />
+        </div>
       </div>
 
       {editing !== null && (
@@ -489,11 +512,37 @@ export function ProductsPage() {
           </table>
 
           <div className="mt-4 flex justify-end">
+            <button
+              className="btn btn-secondary mr-auto"
+              onClick={() => {
+                const t = detail.product;
+                setAdjustTarget({
+                  itemType: "product",
+                  itemId: t.id,
+                  name: t.name,
+                  unitId: t.saleUnitId,
+                  stockMicro: t.stockMicro,
+                });
+              }}
+            >
+              Ajustar / Merma
+            </button>
             <button className="btn btn-secondary" onClick={() => setDetail(null)}>
               Cerrar
             </button>
           </div>
         </Modal>
+      )}
+
+      {adjustTarget && (
+        <StockAdjustModal
+          target={adjustTarget}
+          onClose={() => setAdjustTarget(null)}
+          onDone={() => {
+            list.reload();
+            if (detail) openDetail(detail.product.id);
+          }}
+        />
       )}
     </div>
   );

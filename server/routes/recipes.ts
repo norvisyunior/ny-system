@@ -9,11 +9,15 @@ import {
   updateRecipe,
 } from "../services/recipes";
 import { handle, idParam } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const recipesRouter = Router();
 
 recipesRouter.get("/", (req, res) => {
-  res.json({ ok: true, data: listRecipes(handle(req).db) });
+  const q = typeof req.query.q === "string" ? req.query.q : undefined;
+  const pp = pageParams(req);
+  const result = listRecipes(handle(req).db, { q }, pp);
+  pagedJson(res, pp, result);
 });
 
 recipesRouter.post("/", (req, res) => {

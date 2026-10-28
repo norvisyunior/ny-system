@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../hooks/usePaged";
 import { Badge, Callout, ErrorAlert, Modal } from "../components/ui";
 
 interface AppSettings {
@@ -25,13 +27,15 @@ const KIND_LABEL: Record<string, string> = {
 export function BackupPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [name, setName] = useState("");
-  const [backups, setBackups] = useState<BackupRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<BackupRow | null>(null);
+  const backups = usePaged<BackupRow>(({ page, pageSize }) =>
+    api.get(`/backups?page=${page}&pageSize=${pageSize}`),
+  );
 
-  const load = useCallback(() => {
+  const loadSettings = useCallback(() => {
     api
       .get<AppSettings>("/settings")
       .then((s) => {
@@ -39,9 +43,8 @@ export function BackupPage() {
         setName(s.businessName);
       })
       .catch((e: ApiError) => setError(e.message));
-    api.get<BackupRow[]>("/backups").then(setBackups).catch(() => undefined);
   }, []);
-  useEffect(load, [load]);
+  useEffect(loadSettings, [loadSettings]);
 
   const saveSettings = async () => {
     setSaving(true);
@@ -64,7 +67,7 @@ export function BackupPage() {
     try {
       const info = await api.post<BackupRow>("/backups");
       setMsg(`Respaldo creado: ${info.file}`);
-      setBackups(await api.get<BackupRow[]>("/backups"));
+      backups.reload();
     } catch (e) {
       setError((e as ApiError).message);
     }
@@ -81,7 +84,8 @@ export function BackupPage() {
       );
       setRestoreTarget(null);
       setMsg(`Restaurado desde ${r.restored}. Copia de seguridad previa: ${r.safetyCopy}.`);
-      load();
+      loadSettings();
+      backups.reload();
     } catch (e) {
       setError((e as ApiError).message);
     }
@@ -98,7 +102,7 @@ export function BackupPage() {
         respaldo manual: la restauración crea además una copia de seguridad previa para poder
         volver atrás.
       </Callout>
-      <ErrorAlert message={error} />
+      <ErrorAlert message={error ?? backups.error} />
       {msg && (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {msg}
@@ -146,7 +150,7 @@ export function BackupPage() {
 
       <div className="card overflow-hidden">
         <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
-          Respaldos disponibles ({backups.length})
+          Respaldos disponibles ({backups.total})
         </div>
         <table className="table-ny">
           <thead>
@@ -159,14 +163,16 @@ export function BackupPage() {
             </tr>
           </thead>
           <tbody>
-            {backups.length === 0 && (
+            {backups.rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="py-6 text-center text-slate-400">
-                  Aún no hay respaldos. Cree el primero con el botón superior.
+                  {backups.loading
+                    ? "Cargando…"
+                    : "Aún no hay respaldos. Cree el primero con el botón superior."}
                 </td>
               </tr>
             )}
-            {backups.map((b) => (
+            {backups.rows.map((b) => (
               <tr key={b.file}>
                 <td className="font-mono text-xs">{b.file}</td>
                 <td>
@@ -194,6 +200,17 @@ export function BackupPage() {
             ))}
           </tbody>
         </table>
+        <div className="px-4 pb-3">
+          <Pager
+            page={backups.page}
+            pages={backups.pages}
+            total={backups.total}
+            pageSize={backups.pageSize}
+            rowsCount={backups.rows.length}
+            onPage={backups.setPage}
+            label="respaldos"
+          />
+        </div>
       </div>
 
       <div className="mt-4 rounded-md bg-slate-50 p-4 text-xs text-slate-500">

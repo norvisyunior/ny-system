@@ -9,21 +9,33 @@ import {
   productionInput,
 } from "../services/productions";
 import { handle, idParam } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const productionsRouter = Router();
 
 const listQuery = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  q: z.string().max(60).optional(),
 });
 
 productionsRouter.get("/", (req, res) => {
   const opts = listQuery.parse(req.query);
-  res.json({ ok: true, data: listProductions(handle(req).db, opts) });
+  const pp = pageParams(req);
+  const result = listProductions(handle(req).db, opts, pp);
+  pagedJson(res, pp, result);
 });
 
-productionsRouter.get("/yields", (_req, res) => {
-  res.json({ ok: true, data: listYields(handle(_req).db) });
+productionsRouter.get("/yields", (req, res) => {
+  const listQueryY = z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    q: z.string().max(60).optional(),
+  });
+  const opts = listQueryY.parse(req.query);
+  const pp = pageParams(req);
+  const result = listYields(handle(req).db, opts, pp);
+  pagedJson(res, pp, result);
 });
 
 productionsRouter.get("/:id", (req, res) => {

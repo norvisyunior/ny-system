@@ -13,6 +13,7 @@ import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
 import { decMicro } from "../domain/zod-helpers";
 import { MAX_YIELD_PER_MASS_MICRO } from "./costsheets";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DBOrTx } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
 
@@ -344,8 +345,32 @@ export interface RecipeListRow {
   itemsCount: number;
 }
 
-export function listRecipes(db: DBOrTx): RecipeListRow[] {
-  const rows = db
+export function listRecipes(db: DBOrTx, opts?: { q?: string }): RecipeListRow[];
+export function listRecipes(
+  db: DBOrTx,
+  opts: { q?: string } | undefined,
+  paging: ListPaging,
+): PageResult<RecipeListRow>;
+export function listRecipes(
+  db: DBOrTx,
+  opts: { q?: string } | undefined,
+  paging: ListPaging | undefined,
+): RecipeListRow[] | PageResult<RecipeListRow>;
+export function listRecipes(
+  db: DBOrTx,
+  opts: { q?: string } = {},
+  paging?: ListPaging,
+): RecipeListRow[] | PageResult<RecipeListRow> {
+  // Última versión por receta vía correlato (paginable sin window functions en memoria).
+  const conds = [];
+  if (opts.q) {
+    conds.push(
+      sql`(${recipes.name} LIKE ${"%" + opts.q + "%"} OR ${finishedProducts.name} LIKE ${"%" + opts.q + "%"} OR ${masses.name} LIKE ${"%" + opts.q + "%"})`,
+    );
+  }
+  const where = conds.length ? and(...conds) : undefined;
+
+  const base = db
     .select({
       id: recipes.id,
       name: recipes.name,
@@ -353,23 +378,40 @@ export function listRecipes(db: DBOrTx): RecipeListRow[] {
       active: recipes.active,
       productId: recipes.productId,
       productName: finishedProducts.name,
-      versionId: recipeVersions.id,
-      version: recipeVersions.version,
+      versionId: sql<number>`(SELECT rv.id FROM recipe_versions rv WHERE rv.recipe_id = ${recipes.id} ORDER BY rv.version DESC LIMIT 1)`,
+      version: sql<number>`(SELECT rv.version FROM recipe_versions rv WHERE rv.recipe_id = ${recipes.id} ORDER BY rv.version DESC LIMIT 1)`,
       massId: recipeVersions.massId,
       massName: masses.name,
       expectedYieldMicro: recipeVersions.expectedYieldMicro,
       yieldUnitId: recipeVersions.yieldUnitId,
       validFrom: recipeVersions.validFrom,
       itemsCount: sql<number>`(SELECT COUNT(*) FROM recipe_items ri WHERE ri.recipe_version_id = ${recipeVersions.id})`,
-      rn: sql<number>`ROW_NUMBER() OVER (PARTITION BY ${recipes.id} ORDER BY ${recipeVersions.version} DESC)`,
     })
     .from(recipes)
-    .leftJoin(recipeVersions, eq(recipeVersions.recipeId, recipes.id))
+    .leftJoin(
+      recipeVersions,
+      eq(recipeVersions.id, sql`(SELECT rv.id FROM recipe_versions rv WHERE rv.recipe_id = ${recipes.id} ORDER BY rv.version DESC LIMIT 1)`),
+    )
     .leftJoin(masses, eq(masses.id, recipeVersions.massId))
     .leftJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
-    .all()
-    .filter((r) => r.rn === 1);
-  return rows;
+    .where(where)
+    .orderBy(asc(recipes.name));
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(DISTINCT ${recipes.id})` })
+      .from(recipes)
+      .leftJoin(finishedProducts, eq(finishedProducts.id, recipes.productId))
+      .leftJoin(recipeVersions, eq(recipeVersions.recipeId, recipes.id))
+      .leftJoin(masses, eq(masses.id, recipeVersions.massId))
+      .where(where)
+      .get() as { c: number } | undefined;
+    return {
+      items: base.limit(paging.limit).offset(paging.offset ?? 0).all(),
+      total: Number(totalRow?.c ?? 0),
+    };
+  }
+  return base.all();
 }
 
 export function getRecipeVersionDetail(db: DBOrTx, versionId: number) {

@@ -11,6 +11,7 @@ import {
   previewPlan,
 } from "../services/planning";
 import { handle, idParam } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const plansRouter = Router();
 
@@ -18,11 +19,14 @@ const dateRe = /^\d{4}-\d{2}-\d{2}$/;
 const listQuery = z.object({
   from: z.string().regex(dateRe).optional(),
   to: z.string().regex(dateRe).optional(),
+  q: z.string().max(60).optional(),
 });
 
 plansRouter.get("/", (req, res) => {
   const opts = listQuery.parse(req.query);
-  res.json({ ok: true, data: listPlans(handle(req).db, opts) });
+  const pp = pageParams(req);
+  const result = listPlans(handle(req).db, opts, pp);
+  pagedJson(res, pp, result);
 });
 
 const annulBody = z.object({

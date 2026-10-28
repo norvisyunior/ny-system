@@ -7,11 +7,15 @@ import {
   updateProduct,
 } from "../services/products";
 import { handle, idParam } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const productsRouter = Router();
 
 productsRouter.get("/", (req, res) => {
-  res.json({ ok: true, data: listProducts(handle(req).db) });
+  const q = typeof req.query.q === "string" ? req.query.q : undefined;
+  const pp = pageParams(req);
+  const result = listProducts(handle(req).db, { q }, pp);
+  pagedJson(res, pp, result);
 });
 
 productsRouter.get("/:id", (req, res) => {

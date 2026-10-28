@@ -51,6 +51,24 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return payload as T;
 }
 
+/** Envoltura de listado paginado (?page en la URL). */
+export interface Paged<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** Un endpoint devuelve Paged cuando se le pidió ?page, o array completo si no. */
+export function isPaged<T>(value: unknown): value is Paged<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Array.isArray((value as { items?: unknown }).items) &&
+    typeof (value as { total?: unknown }).total === "number"
+  );
+}
+
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),

@@ -6,6 +6,7 @@ import { logAudit } from "../domain/audit";
 import { assertValidBusinessDate, nowISO } from "../domain/dates";
 import { decMicro } from "../domain/zod-helpers";
 import { formatCUP } from "../../shared/money";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DBOrTx } from "../domain/types";
 
 const PAYMENT_METHODS = ["efectivo", "tarjeta", "transferencia", "otro"] as const;
@@ -62,13 +63,35 @@ export interface ExpenseListRow {
 
 export function listExpenses(
   db: DBOrTx,
-  opts: { from?: string; to?: string; category?: string } = {},
-): ExpenseListRow[] {
+  opts?: { from?: string; to?: string; category?: string; q?: string },
+): ExpenseListRow[];
+export function listExpenses(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; category?: string; q?: string } | undefined,
+  paging: ListPaging,
+): PageResult<ExpenseListRow>;
+export function listExpenses(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; category?: string; q?: string } | undefined,
+  paging: ListPaging | undefined,
+): ExpenseListRow[] | PageResult<ExpenseListRow>;
+export function listExpenses(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; category?: string; q?: string } = {},
+  paging?: ListPaging,
+): ExpenseListRow[] | PageResult<ExpenseListRow> {
   const conds = [];
   if (opts.from) conds.push(sql`${expenses.expenseDate} >= ${opts.from}`);
   if (opts.to) conds.push(sql`${expenses.expenseDate} <= ${opts.to}`);
   if (opts.category) conds.push(eq(expenses.category, opts.category));
-  return db
+  if (opts.q) {
+    conds.push(
+      sql`(${expenses.description} LIKE ${"%" + opts.q + "%"} OR ${expenses.responsible} LIKE ${"%" + opts.q + "%"} OR ${expenses.category} LIKE ${"%" + opts.q + "%"})`,
+    );
+  }
+  const where = conds.length ? and(...conds) : undefined;
+
+  const base = db
     .select({
       id: expenses.id,
       expenseDate: expenses.expenseDate,
@@ -80,9 +103,21 @@ export function listExpenses(
       status: expenses.status,
     })
     .from(expenses)
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(expenses.expenseDate), desc(expenses.id))
-    .all();
+    .where(where)
+    .orderBy(desc(expenses.expenseDate), desc(expenses.id));
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(expenses)
+      .where(where)
+      .get() as { c: number } | undefined;
+    return {
+      items: base.limit(paging.limit).offset(paging.offset ?? 0).all(),
+      total: Number(totalRow?.c ?? 0),
+    };
+  }
+  return base.all();
 }
 
 export function annulExpense(db: DBOrTx, id: number, reason: string) {

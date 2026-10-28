@@ -4,21 +4,32 @@ import {
   annulSale,
   confirmSale,
   getSaleDetail,
+  getSalesSummary,
   listSales,
   saleInput,
 } from "../services/sales";
 import { handle, idParam } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const salesRouter = Router();
 
 const listQuery = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  q: z.string().max(60).optional(),
 });
 
 salesRouter.get("/", (req, res) => {
   const opts = listQuery.parse(req.query);
-  res.json({ ok: true, data: listSales(handle(req).db, opts) });
+  const pp = pageParams(req);
+  const result = listSales(handle(req).db, opts, pp);
+  pagedJson(res, pp, result);
+});
+
+// Totales de ventas confirmadas para el filtro (no solo de la página visible).
+salesRouter.get("/summary", (req, res) => {
+  const opts = listQuery.omit({ q: true }).parse(req.query);
+  res.json({ ok: true, data: getSalesSummary(handle(req).db, opts) });
 });
 
 salesRouter.get("/:id", (req, res) => {

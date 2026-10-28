@@ -1,11 +1,15 @@
 import { Router } from "express";
 import { createMass, getMassDetail, listMasses, massInput, updateMass } from "../services/masses";
 import { handle, idParam } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const massesRouter = Router();
 
 massesRouter.get("/", (req, res) => {
-  res.json({ ok: true, data: listMasses(handle(req).db) });
+  const q = typeof req.query.q === "string" ? req.query.q : undefined;
+  const pp = pageParams(req);
+  const result = listMasses(handle(req).db, { q }, pp);
+  pagedJson(res, pp, result);
 });
 
 massesRouter.get("/:id", (req, res) => {

@@ -11,13 +11,20 @@ import {
 import { logAudit } from "../domain/audit";
 import { domainError, notFoundError } from "../domain/errors";
 import { handle } from "./helpers";
+import { pageParams, slicePage } from "./paging";
 
 export const backupsRouter = Router();
 
 const FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.db$/;
 
-backupsRouter.get("/", (_req, res) => {
-  res.json({ ok: true, data: listBackups() });
+backupsRouter.get("/", (req, res) => {
+  const rows = listBackups();
+  const pp = pageParams(req);
+  if (pp) {
+    res.json({ ok: true, data: slicePage(rows, pp) });
+    return;
+  }
+  res.json({ ok: true, data: rows });
 });
 
 backupsRouter.post("/", (req, res) => {

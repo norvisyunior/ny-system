@@ -1,10 +1,11 @@
 import { masses, stockLots, inventoryMovements } from "../../db/schema";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
 import { decMicro } from "../domain/zod-helpers";
 import { mulQtyPrice } from "../../shared/money";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DB } from "../domain/types";
 
 export const massInput = z.object({
@@ -25,27 +26,69 @@ export interface MassListItem {
   stockValueMicro: number;
 }
 
-export function listMasses(db: DB): MassListItem[] {
-  const rows = db.select().from(masses).orderBy(asc(masses.name)).all();
-  const values = db
-    .select({
-      itemId: stockLots.itemId,
-      total: sql<number>`COALESCE(SUM(${stockLots.qtyRemainingMicro} * ${stockLots.unitCostMicro}), 0)`,
-    })
-    .from(stockLots)
-    .where(and(eq(stockLots.itemType, "mass"), isNull(stockLots.cancelledAt)))
-    .groupBy(stockLots.itemId)
-    .all();
-  const valueBy = new Map(values.map((v) => [v.itemId, Math.trunc(Number(v.total) / 1_000_000)]));
-  return rows.map((m) => ({
-    id: m.id,
-    name: m.name,
-    unitId: m.unitId,
-    stockMicro: m.stockMicro,
-    minStockMicro: m.minStockMicro,
-    active: m.active,
-    stockValueMicro: valueBy.get(m.id) ?? 0,
-  }));
+export function listMasses(db: DB, opts?: { q?: string }): MassListItem[];
+export function listMasses(db: DB, opts: { q?: string } | undefined, paging: ListPaging): PageResult<MassListItem>;
+export function listMasses(
+  db: DB,
+  opts: { q?: string } | undefined,
+  paging: ListPaging | undefined,
+): MassListItem[] | PageResult<MassListItem>;
+export function listMasses(
+  db: DB,
+  opts: { q?: string } = {},
+  paging?: ListPaging,
+): MassListItem[] | PageResult<MassListItem> {
+  const where = opts.q
+    ? sql`(${masses.name} LIKE ${"%" + opts.q + "%"})`
+    : undefined;
+
+  const buildNames = (rows: typeof masses.$inferSelect[]) => {
+    const ids = rows.map((r) => r.id);
+    if (ids.length === 0) return [] as MassListItem[];
+    const values = db
+      .select({
+        itemId: stockLots.itemId,
+        total: sql<number>`COALESCE(SUM(${stockLots.qtyRemainingMicro} * ${stockLots.unitCostMicro}), 0)`,
+      })
+      .from(stockLots)
+      .where(
+        and(
+          eq(stockLots.itemType, "mass"),
+          isNull(stockLots.cancelledAt),
+          inArray(stockLots.itemId, ids),
+        ),
+      )
+      .groupBy(stockLots.itemId)
+      .all();
+    const valueBy = new Map(values.map((v) => [v.itemId, Math.trunc(Number(v.total) / 1_000_000)]));
+    return rows.map((m) => ({
+      id: m.id,
+      name: m.name,
+      unitId: m.unitId,
+      stockMicro: m.stockMicro,
+      minStockMicro: m.minStockMicro,
+      active: m.active,
+      stockValueMicro: valueBy.get(m.id) ?? 0,
+    }));
+  };
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(masses)
+      .where(where)
+      .get() as { c: number } | undefined;
+    const rows = db
+      .select()
+      .from(masses)
+      .where(where)
+      .orderBy(asc(masses.name))
+      .limit(paging.limit)
+      .offset(paging.offset ?? 0)
+      .all();
+    return { items: buildNames(rows), total: Number(totalRow?.c ?? 0) };
+  }
+  return buildNames(db.select().from(masses).where(where).orderBy(asc(masses.name)).all());
 }
 
 export function createMass(db: DB, input: MassInput) {

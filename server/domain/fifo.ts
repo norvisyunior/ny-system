@@ -14,7 +14,7 @@ export interface LotConsume {
 export interface CreateLotInput {
   itemType: "raw" | "mass" | "product";
   itemId: number;
-  refType: "purchase" | "production" | "transformation";
+  refType: "purchase" | "production" | "transformation" | "ajuste";
   refId: number;
   qtyMicro: number;
   unitCostMicro: number;

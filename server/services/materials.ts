@@ -1,9 +1,10 @@
 import { rawMaterials, purchaseItems, purchases, stockLots, units } from "../../db/schema";
-import { aliasedTable, and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { aliasedTable, and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
 import { parseDecimalToMicro, mulQtyPrice } from "../../shared/money";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DB, DBOrTx } from "../domain/types";
 
 const qtyDec = z
@@ -52,81 +53,122 @@ export interface MaterialListItem {
   } | null;
 }
 
-export function listMaterials(db: DBOrTx, opts: { q?: string; activeOnly?: boolean } = {}): MaterialListItem[] {
-  const rows = db
+export function listMaterials(
+  db: DBOrTx,
+  opts?: { q?: string; activeOnly?: boolean },
+): MaterialListItem[];
+export function listMaterials(
+  db: DBOrTx,
+  opts: { q?: string; activeOnly?: boolean } | undefined,
+  paging: ListPaging,
+): PageResult<MaterialListItem>;
+export function listMaterials(
+  db: DBOrTx,
+  opts: { q?: string; activeOnly?: boolean } | undefined,
+  paging: ListPaging | undefined,
+): MaterialListItem[] | PageResult<MaterialListItem>;
+export function listMaterials(
+  db: DBOrTx,
+  opts: { q?: string; activeOnly?: boolean } = {},
+  paging?: ListPaging,
+): MaterialListItem[] | PageResult<MaterialListItem> {
+  const conds = [];
+  if (opts.q) conds.push(sql`(${rawMaterials.name} LIKE ${"%" + opts.q + "%"})`);
+  if (opts.activeOnly) conds.push(eq(rawMaterials.active, true));
+  const where = conds.length ? and(...conds) : undefined;
+
+  const base = db
     .select()
     .from(rawMaterials)
     .leftJoin(units, eq(units.code, rawMaterials.unitId))
-    .where(
-      opts.q
-        ? sql`(${rawMaterials.name} LIKE ${"%" + opts.q + "%"})`
-        : undefined,
-    )
-    .orderBy(asc(rawMaterials.name))
-    .all();
+    .where(where)
+    .orderBy(asc(rawMaterials.name));
+
+  let pageRows: ReturnType<typeof base.all> = [];
+  let total = 0;
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(rawMaterials)
+      .where(where)
+      .get() as { c: number } | undefined;
+    total = Number(totalRow?.c ?? 0);
+    pageRows = base.limit(paging.limit).offset(paging.offset ?? 0).all();
+  } else {
+    pageRows = base.all();
+  }
+
+  const ids = pageRows.map((r) => r.raw_materials.id);
 
   const valueByMaterial = new Map<number, number>();
-  const values = db
-    .select({
-      itemId: stockLots.itemId,
-      total: sql<number>`COALESCE(SUM(${stockLots.qtyRemainingMicro} * ${stockLots.unitCostMicro}), 0)`,
-    })
-    .from(stockLots)
-    .where(and(eq(stockLots.itemType, "raw"), isNull(stockLots.cancelledAt)))
-    .groupBy(stockLots.itemId)
-    .all();
-  for (const v of values) valueByMaterial.set(v.itemId, Math.trunc(Number(v.total) / 1_000_000));
+  if (ids.length > 0) {
+    const values = db
+      .select({
+        itemId: stockLots.itemId,
+        total: sql<number>`COALESCE(SUM(${stockLots.qtyRemainingMicro} * ${stockLots.unitCostMicro}), 0)`,
+      })
+      .from(stockLots)
+      .where(
+        and(eq(stockLots.itemType, "raw"), isNull(stockLots.cancelledAt), inArray(stockLots.itemId, ids)),
+      )
+      .groupBy(stockLots.itemId)
+      .all();
+    for (const v of values) valueByMaterial.set(v.itemId, Math.trunc(Number(v.total) / 1_000_000));
 
-  const lastPrices = db
-    .select({
-      materialId: purchaseItems.rawMaterialId,
-      priceMicro: purchaseItems.unitPriceMicro,
-      unitId: purchaseItems.unitId,
-      unitLabel: purchaseUnit.label,
-      date: purchases.purchaseDate,
-      supplier: suppliersName,
-      rn: sql<number>`ROW_NUMBER() OVER (PARTITION BY ${purchaseItems.rawMaterialId} ORDER BY ${purchases.purchaseDate} DESC, ${purchases.id} DESC)`,
-    })
-    .from(purchaseItems)
-    .innerJoin(purchases, eq(purchases.id, purchaseItems.purchaseId))
-    .innerJoin(purchaseUnit, eq(purchaseUnit.code, purchaseItems.unitId))
-    .where(eq(purchases.status, "confirmada"))
-    .all()
-    .filter((r) => r.rn === 1);
+    const lastPrices = db
+      .select({
+        materialId: purchaseItems.rawMaterialId,
+        priceMicro: purchaseItems.unitPriceMicro,
+        unitId: purchaseItems.unitId,
+        unitLabel: purchaseUnit.label,
+        date: purchases.purchaseDate,
+        supplier: suppliersName,
+        rn: sql<number>`ROW_NUMBER() OVER (PARTITION BY ${purchaseItems.rawMaterialId} ORDER BY ${purchases.purchaseDate} DESC, ${purchases.id} DESC)`,
+      })
+      .from(purchaseItems)
+      .innerJoin(purchases, eq(purchases.id, purchaseItems.purchaseId))
+      .innerJoin(purchaseUnit, eq(purchaseUnit.code, purchaseItems.unitId))
+      .where(and(eq(purchases.status, "confirmada"), inArray(purchaseItems.rawMaterialId, ids)))
+      .all()
+      .filter((r) => r.rn === 1);
 
-  const lastByMaterial = new Map<number, (typeof lastPrices)[number]>();
-  for (const p of lastPrices) lastByMaterial.set(p.materialId, p);
+    const lastByMaterial = new Map<number, (typeof lastPrices)[number]>();
+    for (const p of lastPrices) lastByMaterial.set(p.materialId, p);
 
-  const result: MaterialListItem[] = [];
-  for (const r of rows) {
-    const m = r.raw_materials;
-    if (opts.activeOnly && !m.active) continue;
-    const lp = lastByMaterial.get(m.id);
-    const unitLabel = r.units?.label ?? m.unitId;
-    const lastPrice = lp
-      ? {
-          priceMicro: lp.priceMicro,
-          unitId: lp.unitId,
-          unitLabel: lp.unitLabel,
-          date: lp.date,
-          supplier: lp.supplier ?? "",
-        }
-      : null;
-    result.push({
-      id: m.id,
-      name: m.name,
-      category: m.category,
-      unitId: m.unitId,
-      unitLabel,
-      dimension: r.units?.dimension ?? "",
-      stockMicro: m.stockMicro,
-      minStockMicro: m.minStockMicro,
-      active: m.active,
-      stockValueMicro: valueByMaterial.get(m.id) ?? 0,
-      lastPrice,
+    const result: MaterialListItem[] = pageRows.map((r) => {
+      const m = r.raw_materials;
+      const lp = lastByMaterial.get(m.id);
+      const unitLabel = r.units?.label ?? m.unitId;
+      const lastPrice = lp
+        ? {
+            priceMicro: lp.priceMicro,
+            unitId: lp.unitId,
+            unitLabel: lp.unitLabel,
+            date: lp.date,
+            supplier: lp.supplier ?? "",
+          }
+        : null;
+      return {
+        id: m.id,
+        name: m.name,
+        category: m.category,
+        unitId: m.unitId,
+        unitLabel,
+        dimension: r.units?.dimension ?? "",
+        stockMicro: m.stockMicro,
+        minStockMicro: m.minStockMicro,
+        active: m.active,
+        stockValueMicro: valueByMaterial.get(m.id) ?? 0,
+        lastPrice,
+      };
     });
+
+    if (paging?.limit != null) return { items: result, total };
+    return result;
   }
-  return result;
+
+  if (paging?.limit != null) return { items: [], total };
+  return [];
 }
 
 const suppliersName = sql<string>`(SELECT name FROM suppliers s WHERE s.id = ${purchases.supplierId})`;

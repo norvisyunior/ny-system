@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { api } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../hooks/usePaged";
 import { Badge, Callout, ErrorAlert, SearchInput, fmtDocNumber, fmtMoney, fmtQty } from "../components/ui";
 
 interface TermRow {
@@ -40,37 +41,25 @@ const pct = (real: number, expected: number): number | null =>
   expected > 0 ? Math.round((real / expected) * 10000) / 100 : null;
 
 export function YieldsPage() {
-  const [terms, setTerms] = useState<TermRow[]>([]);
-  const [elabs, setElabs] = useState<ElabRow[]>([]);
-  const [q, setQ] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    Promise.all([api.get<TermRow[]>("/transformations"), api.get<ElabRow[]>("/productions/yields")])
-      .then(([t, e]) => {
-        setTerms(t);
-        setElabs(e);
-      })
-      .catch((e: ApiError) => setError(e.message));
-  }, []);
-
-  const needle = q.toLowerCase();
-  const fTerms = terms.filter(
-    (r) =>
-      (r.recipeName ?? "").toLowerCase().includes(needle) ||
-      (r.productName ?? "").toLowerCase().includes(needle) ||
-      r.massName.toLowerCase().includes(needle) ||
-      String(r.number).includes(needle),
+  const terms = usePaged<TermRow>(({ page, pageSize, search }) =>
+    api.get(
+      `/transformations?page=${page}&pageSize=${pageSize}` +
+        (search ? `&q=${encodeURIComponent(search)}` : ""),
+    ),
   );
-  const fElabs = elabs.filter(
-    (r) =>
-      r.recipeName.toLowerCase().includes(needle) ||
-      r.massName.toLowerCase().includes(needle) ||
-      String(r.number).includes(needle),
+  const elabs = usePaged<ElabRow>(({ page, pageSize, search }) =>
+    api.get(
+      `/productions/yields?page=${page}&pageSize=${pageSize}` +
+        (search ? `&q=${encodeURIComponent(search)}` : ""),
+    ),
   );
+  const setSearchBoth = (v: string) => {
+    terms.setSearch(v);
+    elabs.setSearch(v);
+  };
 
-  // Rendimiento medio de terminación: solo filas con receta (esperado > 0).
-  const termOk = terms.filter((r) => r.status === "confirmada" && r.expectedPackagesMicro > 0);
+  // Rendimiento medio de la página visible: solo filas con receta (esperado > 0).
+  const termOk = terms.rows.filter((r) => r.status === "confirmada" && r.expectedPackagesMicro > 0);
   const avgTerm =
     termOk.length > 0
       ? Math.round(
@@ -79,7 +68,7 @@ export function YieldsPage() {
             100,
         ) / 100
       : null;
-  const elabOk = elabs.filter((r) => r.status === "confirmada");
+  const elabOk = elabs.rows.filter((r) => r.status === "confirmada");
   const avgElab =
     elabOk.length > 0
       ? Math.round((elabOk.reduce((acc, r) => acc + r.yieldPercent, 0) / elabOk.length) * 100) / 100
@@ -96,15 +85,15 @@ export function YieldsPage() {
         los que decía la receta; en la elaboración, las masas hechas frente al plan. Una
         desviación grande suele significar pérdida de materia prima o un error de captura.
       </Callout>
-      <ErrorAlert message={error} />
+      <ErrorAlert message={terms.error ?? elabs.error} />
 
       <div className="mb-4 flex items-center justify-between">
-        <SearchInput value={q} onChange={setQ} placeholder="Buscar por receta, producto, masa o número…" />
+        <SearchInput value={terms.search} onChange={setSearchBoth} placeholder="Buscar por receta, producto, masa o número…" />
         <span className="text-sm text-slate-500">
-          {fTerms.length} terminación(es) · {fElabs.length} elaboración(es)
+          {terms.total} terminación(es) · {elabs.total} elaboración(es)
           {avgTerm != null && (
             <>
-              {" "}· Rendimiento medio de terminación: <strong>{avgTerm}%</strong>
+              {" "}· Rendimiento medio de terminación (página): <strong>{avgTerm}%</strong>
             </>
           )}
         </span>
@@ -135,14 +124,14 @@ export function YieldsPage() {
             </tr>
           </thead>
           <tbody>
-            {fTerms.length === 0 && (
+            {terms.rows.length === 0 && (
               <tr>
                 <td colSpan={9} className="py-6 text-center text-slate-400">
-                  Sin terminaciones registradas.
+                  {terms.loading ? "Cargando…" : "Sin terminaciones registradas."}
                 </td>
               </tr>
             )}
-            {fTerms.map((r) => {
+            {terms.rows.map((r) => {
               const p = pct(r.realPackagesMicro, r.expectedPackagesMicro);
               return (
                 <tr key={r.id}>
@@ -199,6 +188,17 @@ export function YieldsPage() {
             })}
           </tbody>
         </table>
+        <div className="px-4 pb-3">
+          <Pager
+            page={terms.page}
+            pages={terms.pages}
+            total={terms.total}
+            pageSize={terms.pageSize}
+            rowsCount={terms.rows.length}
+            onPage={terms.setPage}
+            label="terminaciones"
+          />
+        </div>
       </div>
 
       <div className="card mb-5 overflow-hidden">
@@ -226,14 +226,14 @@ export function YieldsPage() {
             </tr>
           </thead>
           <tbody>
-            {fElabs.length === 0 && (
+            {elabs.rows.length === 0 && (
               <tr>
                 <td colSpan={9} className="py-6 text-center text-slate-400">
-                  Sin elaboraciones registradas.
+                  {elabs.loading ? "Cargando…" : "Sin elaboraciones registradas."}
                 </td>
               </tr>
             )}
-            {fElabs.map((r) => (
+            {elabs.rows.map((r) => (
               <tr key={r.id}>
                 <td className="font-mono font-semibold">{fmtDocNumber(r.number)}</td>
                 <td>{r.productionDate}</td>
@@ -271,16 +271,27 @@ export function YieldsPage() {
             ))}
           </tbody>
         </table>
+        <div className="px-4 pb-3">
+          <Pager
+            page={elabs.page}
+            pages={elabs.pages}
+            total={elabs.total}
+            pageSize={elabs.pageSize}
+            rowsCount={elabs.rows.length}
+            onPage={elabs.setPage}
+            label="elaboraciones"
+          />
+        </div>
       </div>
 
       <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
         La <strong>desviación de terminación</strong> (Real − Esperado en paquetes) refleja
         pérdidas o sobrantes al empaquetar; la de <strong>elaboración</strong> compara las masas
-        hechas contra el plan. Costo total de las terminaciones visibles:{" "}
-        <strong>{fmtMoney(fTerms.reduce((acc, r) => acc + r.totalCostMicro, 0))}</strong>
+        hechas contra el plan. Costo total de las terminaciones de la página:{" "}
+        <strong>{fmtMoney(terms.rows.reduce((acc, r) => acc + r.totalCostMicro, 0))}</strong>
         {avgElab != null && (
           <>
-            {" "}· Rendimiento medio de elaboración: <strong>{avgElab}%</strong>
+            {" "}· Rendimiento medio de elaboración (página): <strong>{avgElab}%</strong>
           </>
         )}
       </div>

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { microToDecimalTrim } from "@shared/money";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../hooks/usePaged";
 import { Badge, ErrorAlert, FlowGuide, Modal, SearchInput, fmtQty, todayISO } from "../components/ui";
 
 type Phase = "masa" | "paquete";
@@ -106,12 +108,11 @@ const EMPTY_FORM = (): RecipeForm => ({
 const EMPTY_HEADER = { name: "", description: "", productId: "" };
 
 export function RecipesPage() {
-  const [rows, setRows] = useState<RecipeRow[]>([]);
   const [masses, setMasses] = useState<Mass[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [q, setQ] = useState("");
+  const [usedProductIds, setUsedProductIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -120,10 +121,26 @@ export function RecipesPage() {
   const [form, setForm] = useState<RecipeForm>(EMPTY_FORM());
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(() => {
-    api.get<RecipeRow[]>("/recipes").then(setRows).catch((e: ApiError) => setError(e.message));
+  const list = usePaged<RecipeRow>(({ page, pageSize, search }) => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("pageSize", String(pageSize));
+    if (search) params.set("q", search);
+    return api.get(`/recipes?${params.toString()}`);
+  });
+  const rows = list.rows;
+
+  const loadUsedProductIds = useCallback(() => {
+    api
+      .get<RecipeRow[]>("/recipes")
+      .then((rs) =>
+        setUsedProductIds(
+          new Set(rs.map((r) => r.productId).filter((x): x is number => x != null)),
+        ),
+      )
+      .catch(() => undefined);
   }, []);
-  useEffect(load, [load]);
+  useEffect(loadUsedProductIds, [loadUsedProductIds]);
   useEffect(() => {
     Promise.all([
       api.get<Mass[]>("/masses"),
@@ -153,7 +170,6 @@ export function RecipesPage() {
     (m) => m.active && (!activeProduct || unitDimension(m.unitId) === "conteo"),
   );
   const selectedMass = masses.find((m) => String(m.id) === form.massId);
-  const usedProductIds = new Set(rows.map((r) => r.productId).filter((x): x is number => x != null));
 
   const setItem = (idx: number, patch: Partial<RecipeForm["items"][number]>) => {
     setForm((f) => ({
@@ -223,7 +239,8 @@ export function RecipesPage() {
         version: bodyPayload(),
       });
       setCreateOpen(false);
-      load();
+      list.reload();
+      loadUsedProductIds();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -277,19 +294,14 @@ export function RecipesPage() {
         version: bodyPayload(),
       });
       setEditing(null);
-      load();
+      list.reload();
+      loadUsedProductIds();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
       setSaving(false);
     }
   };
-
-  const filtered = rows.filter(
-    (r) =>
-      r.name.toLowerCase().includes(q.toLowerCase()) ||
-      (r.productName ?? "").toLowerCase().includes(q.toLowerCase()),
-  );
 
   const addItem = (phase: Phase) =>
     setForm((f) => ({
@@ -559,11 +571,11 @@ export function RecipesPage() {
         }
       />
       <FlowGuide current="recetas" />
-      <ErrorAlert message={error} />
+      <ErrorAlert message={error ?? list.error} />
 
       <div className="mb-4 flex items-center justify-between">
-        <SearchInput value={q} onChange={setQ} placeholder="Buscar por nombre o producto…" />
-        <span className="text-sm text-slate-500">{filtered.length} receta(s)</span>
+        <SearchInput value={list.search} onChange={list.setSearch} placeholder="Buscar por nombre o producto…" />
+        <span className="text-sm text-slate-500">{list.total} receta(s)</span>
       </div>
 
       <div className="card overflow-hidden">
@@ -580,14 +592,14 @@ export function RecipesPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && (
+            {rows.length === 0 && (
               <tr>
                 <td colSpan={7} className="py-8 text-center text-slate-400">
-                  Sin recetas registradas.
+                  {list.loading ? "Cargando…" : "Sin recetas registradas."}
                 </td>
               </tr>
             )}
-            {filtered.map((r) => (
+            {rows.map((r) => (
               <tr key={r.id}>
                 <td className="font-medium">{r.name}</td>
                 <td>{r.productName ?? <span className="text-slate-400">Legado</span>}</td>
@@ -610,6 +622,17 @@ export function RecipesPage() {
             ))}
           </tbody>
         </table>
+        <div className="px-4 pb-3">
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            pageSize={list.pageSize}
+            rowsCount={rows.length}
+            onPage={list.setPage}
+            label="recetas"
+          />
+        </div>
       </div>
 
       {createOpen && (

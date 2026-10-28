@@ -9,6 +9,7 @@ import {
   reopenDay,
 } from "../services/closings";
 import { handle } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const closingsRouter = Router();
 
@@ -21,7 +22,9 @@ const listQuery = z.object({
 
 closingsRouter.get("/", (req, res) => {
   const opts = listQuery.parse(req.query);
-  res.json({ ok: true, data: listClosings(handle(req).db, opts) });
+  const pp = pageParams(req);
+  const result = listClosings(handle(req).db, opts, pp);
+  pagedJson(res, pp, result);
 });
 
 closingsRouter.get("/preview", (req, res) => {

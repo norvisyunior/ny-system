@@ -6,11 +6,16 @@ import {
   updateSupplier,
 } from "../services/suppliers";
 import { handle, idParam } from "./helpers";
+import { pageParams, pagedJson } from "./paging";
 
 export const suppliersRouter = Router();
 
 suppliersRouter.get("/", (req, res) => {
-  res.json({ ok: true, data: listSuppliers(handle(req).db) });
+  const q = typeof req.query.q === "string" ? req.query.q : undefined;
+  const activeOnly = req.query.active === "1";
+  const pp = pageParams(req);
+  const result = listSuppliers(handle(req).db, { q, activeOnly }, pp);
+  pagedJson(res, pp, result);
 });
 
 suppliersRouter.post("/", (req, res) => {

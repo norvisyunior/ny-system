@@ -6,7 +6,7 @@ import {
   inventoryMovements,
   stockLots,
 } from "../../db/schema";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { conflictError, domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
@@ -15,6 +15,7 @@ import { assertValidBusinessDate, nowISO } from "../domain/dates";
 import { consumeFIFO } from "../domain/fifo";
 import { decMicro, mulQtyPrice, divRoundAway } from "../domain/zod-helpers";
 import { formatCUP, microToDecimalTrim } from "../../shared/money";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DBOrTx } from "../domain/types";
 
 const PAYMENT_METHODS = ["efectivo", "tarjeta", "transferencia", "otro"] as const;
@@ -184,11 +185,76 @@ export interface SaleListRow {
   productsSummary: string | null;
 }
 
-export function listSales(db: DBOrTx, opts: { from?: string; to?: string } = {}): SaleListRow[] {
+export function listSales(
+  db: DBOrTx,
+  opts?: { from?: string; to?: string; q?: string },
+): SaleListRow[];
+export function listSales(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging,
+): PageResult<SaleListRow>;
+export function listSales(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging | undefined,
+): SaleListRow[] | PageResult<SaleListRow>;
+export function listSales(
+  db: DBOrTx,
+  opts: { from?: string; to?: string; q?: string } = {},
+  paging?: ListPaging,
+): SaleListRow[] | PageResult<SaleListRow> {
+  type SaleBaseRow = {
+    id: number;
+    number: number;
+    saleDate: string;
+    paymentMethod: string;
+    subtotalMicro: number;
+    discountMicro: number;
+    totalMicro: number;
+    totalCostMicro: number;
+    status: string;
+    itemsCount: number;
+  };
   const conds = [];
   if (opts.from) conds.push(sql`${sales.saleDate} >= ${opts.from}`);
   if (opts.to) conds.push(sql`${sales.saleDate} <= ${opts.to}`);
-  const rows = db
+  if (opts.q) {
+    conds.push(
+      sql`(CAST(${sales.number} AS TEXT) LIKE ${"%" + opts.q + "%"} OR ${sales.paymentMethod} LIKE ${"%" + opts.q + "%"} OR ${sales.saleDate} LIKE ${"%" + opts.q + "%"} OR exists (SELECT 1 FROM sale_items si JOIN finished_products fp ON fp.id = si.product_id WHERE si.sale_id = "sales"."id" AND fp.name LIKE ${"%" + opts.q + "%"}))`,
+    );
+  }
+  const where = conds.length ? and(...conds) : undefined;
+
+  const build = (rows: SaleBaseRow[]): SaleListRow[] => {
+    if (rows.length === 0) return [];
+
+    const saleIds = [...new Set(rows.map((r) => r.id))];
+    const itemRows = db
+      .select({
+        saleId: saleItems.saleId,
+        name: finishedProducts.name,
+      })
+      .from(saleItems)
+      .innerJoin(finishedProducts, eq(finishedProducts.id, saleItems.productId))
+      .where(inArray(saleItems.saleId, saleIds))
+      .orderBy(asc(saleItems.id))
+      .all();
+
+    const bySale = new Map<number, string[]>();
+    for (const ir of itemRows) {
+      const list = bySale.get(ir.saleId);
+      if (list) list.push(ir.name);
+      else bySale.set(ir.saleId, [ir.name]);
+    }
+
+    return rows.map((r) => ({
+      ...r,
+      productsSummary: (bySale.get(r.id) ?? []).join(" · ") || null,
+    }));
+  };
+
+  const base = db
     .select({
       id: sales.id,
       number: sales.number,
@@ -199,38 +265,45 @@ export function listSales(db: DBOrTx, opts: { from?: string; to?: string } = {})
       totalMicro: sales.totalMicro,
       totalCostMicro: sales.totalCostMicro,
       status: sales.status,
-      itemsCount: sql<number>`(SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = ${sales.id})`,
+      itemsCount: sql<number>`(SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = "sales"."id")`,
     })
     .from(sales)
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(sales.saleDate), desc(sales.number))
-    .all();
+    .where(where);
+  const ordered = base.orderBy(desc(sales.saleDate), desc(sales.number));
 
-  if (rows.length === 0) return [];
-
-  const saleIds = new Set(rows.map((r) => r.id));
-  const itemRows = db
-    .select({
-      saleId: saleItems.saleId,
-      name: finishedProducts.name,
-    })
-    .from(saleItems)
-    .innerJoin(finishedProducts, eq(finishedProducts.id, saleItems.productId))
-    .orderBy(asc(saleItems.id))
-    .all();
-
-  const bySale = new Map<number, string[]>();
-  for (const ir of itemRows) {
-    if (!saleIds.has(ir.saleId)) continue;
-    const list = bySale.get(ir.saleId);
-    if (list) list.push(ir.name);
-    else bySale.set(ir.saleId, [ir.name]);
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(sales)
+      .where(where)
+      .get() as { c: number } | undefined;
+    const items = build(ordered.limit(paging.limit).offset(paging.offset ?? 0).all());
+    return { items, total: Number(totalRow?.c ?? 0) };
   }
+  return build(ordered.all());
+}
 
-  return rows.map((r) => ({
-    ...r,
-    productsSummary: (bySale.get(r.id) ?? []).join(" · ") || null,
-  }));
+export function getSalesSummary(
+  db: DBOrTx,
+  opts: { from?: string; to?: string } = {},
+): { count: number; totalMicro: number; costMicro: number } {
+  const conds = [eq(sales.status, "confirmada")];
+  if (opts.from) conds.push(sql`${sales.saleDate} >= ${opts.from}`);
+  if (opts.to) conds.push(sql`${sales.saleDate} <= ${opts.to}`);
+  const row = db
+    .select({
+      count: sql<number>`COUNT(*)`,
+      totalMicro: sql<number>`COALESCE(SUM(${sales.totalMicro}), 0)`,
+      costMicro: sql<number>`COALESCE(SUM(${sales.totalCostMicro}), 0)`,
+    })
+    .from(sales)
+    .where(and(...conds))
+    .get() as { count: number; totalMicro: number; costMicro: number } | undefined;
+  return {
+    count: Number(row?.count ?? 0),
+    totalMicro: Number(row?.totalMicro ?? 0),
+    costMicro: Number(row?.costMicro ?? 0),
+  };
 }
 
 export function getSaleDetail(db: DBOrTx, id: number) {

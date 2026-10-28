@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { StockAdjustModal, type StockAdjustTarget } from "../components/StockAdjustModal";
 import { Badge, ErrorAlert, FlowGuide, Modal, SearchInput, fmtMoney, fmtQty, stockLevel } from "../components/ui";
+import { usePaged } from "../hooks/usePaged";
 
 interface Unit {
   code: string;
@@ -73,21 +76,27 @@ const EMPTY = {
 };
 
 export function MaterialsPage() {
-  const [rows, setRows] = useState<MaterialListItem[]>([]);
+  const list = usePaged<MaterialListItem>(({ page, pageSize, search }) =>
+    api.get(
+      `/materials?page=${page}&pageSize=${pageSize}` +
+        (search ? `&q=${encodeURIComponent(search)}` : ""),
+    ),
+  );
+  const rows = list.rows;
   const [units, setUnits] = useState<Unit[]>([]);
-  const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<(typeof EMPTY & { id: number }) | null>(null);
   const [detail, setDetail] = useState<MaterialDetail | null>(null);
   const [saving, setSaving] = useState(false);
+  const [adjustTarget, setAdjustTarget] = useState<StockAdjustTarget | null>(null);
 
-  const load = useCallback(() => {
+  const openDetail = useCallback((id: number) => {
+    setError(null);
     api
-      .get<MaterialListItem[]>("/materials")
-      .then(setRows)
+      .get<MaterialDetail>(`/materials/${id}`)
+      .then(setDetail)
       .catch((e: ApiError) => setError(e.message));
   }, []);
-  useEffect(load, [load]);
   useEffect(() => {
     api.get<Unit[]>("/units").then(setUnits).catch(() => undefined);
   }, []);
@@ -135,25 +144,13 @@ export function MaterialsPage() {
       if (form.id) await api.put(`/materials/${form.id}`, body);
       else await api.post("/materials", body);
       setForm(null);
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
       setSaving(false);
     }
   };
-
-  const openDetail = async (id: number) => {
-    setError(null);
-    try {
-      const res = await api.get<MaterialDetail>(`/materials/${id}`);
-      setDetail(res);
-    } catch (e) {
-      setError((e as ApiError).message);
-    }
-  };
-
-  const filtered = rows.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()));
 
   const DIMENSION_LABEL: Record<string, string> = {
     masa: "Masa (kg, g, lb)",
@@ -181,10 +178,10 @@ export function MaterialsPage() {
         }
       />
       <FlowGuide current="catalogos" />
-      <ErrorAlert message={error} />
+      <ErrorAlert message={error ?? list.error} />
       <div className="mb-4 flex items-center justify-between">
-        <SearchInput value={q} onChange={setQ} placeholder="Buscar por nombre…" />
-        <span className="text-sm text-slate-500">{filtered.length} registro(s)</span>
+        <SearchInput value={list.search} onChange={list.setSearch} placeholder="Buscar por nombre…" />
+        <span className="text-sm text-slate-500">{list.total} registro(s)</span>
       </div>
 
       <div className="card overflow-hidden">
@@ -202,14 +199,14 @@ export function MaterialsPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && (
+            {rows.length === 0 && (
               <tr>
                 <td colSpan={8} className="py-8 text-center text-slate-400">
-                  Sin materias primas registradas.
+                  {list.loading ? "Cargando…" : "Sin materias primas registradas."}
                 </td>
               </tr>
             )}
-            {filtered.map((m) => {
+            {rows.map((m) => {
               const level = stockLevel(m.stockMicro, m.minStockMicro);
               return (
                 <tr key={m.id}>
@@ -241,6 +238,21 @@ export function MaterialsPage() {
                       <button className="btn btn-secondary" onClick={() => openEdit(m)}>
                         Editar
                       </button>
+                      <button
+                        className="btn btn-secondary"
+                        title="Ajustar stock exacto o registrar merma"
+                        onClick={() =>
+                          setAdjustTarget({
+                            itemType: "raw",
+                            itemId: m.id,
+                            name: m.name,
+                            unitId: m.unitId,
+                            stockMicro: m.stockMicro,
+                          })
+                        }
+                      >
+                        Ajustar / Merma
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -248,6 +260,17 @@ export function MaterialsPage() {
             })}
           </tbody>
         </table>
+        <div className="px-4 pb-3">
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            pageSize={list.pageSize}
+            rowsCount={rows.length}
+            onPage={list.setPage}
+            label="materias primas"
+          />
+        </div>
       </div>
 
       {form && (
@@ -445,11 +468,36 @@ export function MaterialsPage() {
           </div>
 
           <div className="mt-4 flex justify-end">
+            <button
+              className="btn btn-secondary mr-auto"
+              onClick={() =>
+                setAdjustTarget({
+                  itemType: "raw",
+                  itemId: detail.material.id,
+                  name: detail.material.name,
+                  unitId: detail.material.unitId,
+                  stockMicro: detail.material.stockMicro,
+                })
+              }
+            >
+              Ajustar / Merma
+            </button>
             <button className="btn btn-secondary" onClick={() => setDetail(null)}>
               Cerrar
             </button>
           </div>
         </Modal>
+      )}
+
+      {adjustTarget && (
+        <StockAdjustModal
+          target={adjustTarget}
+          onClose={() => setAdjustTarget(null)}
+          onDone={() => {
+            list.reload();
+            if (detail) openDetail(detail.material.id);
+          }}
+        />
       )}
     </div>
   );

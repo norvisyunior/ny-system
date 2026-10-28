@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { Pager } from "../components/Pager";
+import { usePaged } from "../hooks/usePaged";
 import {
   Badge,
   DayFilter,
@@ -31,8 +33,6 @@ const PAYMENT_LABELS: Record<string, string> = {
 };
 
 export function ExpensesPage() {
-  const [rows, setRows] = useState<ExpenseRow[]>([]);
-  const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "form">("list");
   const [form, setForm] = useState({
@@ -52,15 +52,21 @@ export function ExpensesPage() {
   const [date, setDate] = useState(todayISO());
   // Alcance: "day" = solo el día elegido; "all" = todos los registros.
   const [scope, setScope] = useState<"day" | "all">("day");
-
-  const load = useCallback(() => {
-    const params = scope === "day" ? `?from=${date}&to=${date}` : "";
-    api
-      .get<ExpenseRow[]>(`/expenses${params}`)
-      .then(setRows)
-      .catch((e: ApiError) => setError(e.message));
-  }, [date, scope]);
-  useEffect(load, [load]);
+  const list = usePaged<ExpenseRow>(
+    ({ page, pageSize, search }) => {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      if (scope === "day") {
+        params.set("from", date);
+        params.set("to", date);
+      }
+      if (search) params.set("q", search);
+      return api.get(`/expenses?${params.toString()}`);
+    },
+    [date, scope],
+  );
+  const rows = list.rows;
 
   const openForm = () => {
     setForm({
@@ -90,7 +96,7 @@ export function ExpensesPage() {
         notes: form.notes || null,
       });
       setView("list");
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -104,18 +110,12 @@ export function ExpensesPage() {
       await api.post(`/expenses/${annulTarget.id}/annul`, { reason: annulReason });
       setAnnulTarget(null);
       setAnnulReason("");
-      load();
+      list.reload();
     } catch (e) {
       setError((e as ApiError).message);
     }
   };
 
-  const filtered = rows.filter(
-    (r) =>
-      r.category.toLowerCase().includes(q.toLowerCase()) ||
-      r.description.toLowerCase().includes(q.toLowerCase()) ||
-      r.expenseDate.includes(q),
-  );
   const totalActive = rows
     .filter((r) => r.status === "confirmada")
     .reduce((acc, r) => acc + r.amountMicro, 0);
@@ -142,17 +142,17 @@ export function ExpensesPage() {
           )
         }
       />
-      <ErrorAlert message={error} />
+      <ErrorAlert message={error ?? list.error} />
 
       {view === "list" && (
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <SearchInput value={q} onChange={setQ} placeholder="Buscar por categoría, descripción o fecha…" />
+            <SearchInput value={list.search} onChange={list.setSearch} placeholder="Buscar por categoría, descripción o fecha…" />
             <div className="flex flex-wrap items-center gap-3">
               <ScopeToggle scope={scope} onChange={setScope} />
               {scope === "day" && <DayFilter date={date} onChange={setDate} />}
               <span className="text-sm text-slate-500">
-                {filtered.length} gasto(s) · activos {fmtMoney(totalActive)}
+                {list.total} gasto(s) · activos de esta página {fmtMoney(totalActive)}
               </span>
             </div>
           </div>
@@ -176,14 +176,14 @@ export function ExpensesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
+                {rows.length === 0 && (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-slate-400">
-                      Sin gastos registrados.
+                      {list.loading ? "Cargando…" : "Sin gastos registrados."}
                     </td>
                   </tr>
                 )}
-                {filtered.map((r) => (
+                {rows.map((r) => (
                   <tr key={r.id}>
                     <td>{r.expenseDate}</td>
                     <td className="font-semibold">{r.category}</td>
@@ -216,6 +216,17 @@ export function ExpensesPage() {
                 ))}
               </tbody>
             </table>
+            <div className="px-4 pb-3">
+              <Pager
+                page={list.page}
+                pages={list.pages}
+                total={list.total}
+                pageSize={list.pageSize}
+                rowsCount={rows.length}
+                onPage={list.setPage}
+                label="gastos"
+              />
+            </div>
           </div>
         </>
       )}

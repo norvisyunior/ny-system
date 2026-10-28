@@ -20,10 +20,11 @@ import { nextDocNumber } from "../domain/counters";
 import { assertValidBusinessDate, nowISO } from "../domain/dates";
 import { consumeFIFO, createLot } from "../domain/fifo";
 import { decMicro } from "../domain/zod-helpers";
-import { divRoundAway, formatCUP, microToDecimalTrim, mulQtyPrice } from "../../shared/money";
+import { divRoundAway, formatCUP, microToDecimalTrim, mulQtyPrice } from 
+"../../shared/money";
+import type { ListPaging, PageResult } from "../domain/paging";
 import type { DB } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
-
 export const productionInput = z.object({
   productionDate: z.string().min(1, "Fecha requerida."),
   recipeVersionId: z.number().int().positive("Versión de receta requerida."),
@@ -308,11 +309,36 @@ export interface ProductionListRow {
   status: string;
 }
 
-export function listProductions(db: DB, opts: { from?: string; to?: string } = {}): ProductionListRow[] {
+export function listProductions(
+  db: DB,
+  opts?: { from?: string; to?: string; q?: string },
+): ProductionListRow[];
+export function listProductions(
+  db: DB,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging,
+): PageResult<ProductionListRow>;
+export function listProductions(
+  db: DB,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging | undefined,
+): ProductionListRow[] | PageResult<ProductionListRow>;
+export function listProductions(
+  db: DB,
+  opts: { from?: string; to?: string; q?: string } = {},
+  paging?: ListPaging,
+): ProductionListRow[] | PageResult<ProductionListRow> {
   const conds = [];
   if (opts.from) conds.push(sql`${productionBatches.productionDate} >= ${opts.from}`);
   if (opts.to) conds.push(sql`${productionBatches.productionDate} <= ${opts.to}`);
-  return db
+  if (opts.q) {
+    conds.push(
+      sql`(CAST(${productionBatches.number} AS TEXT) LIKE ${"%" + opts.q + "%"} OR ${recipes.name} LIKE ${"%" + opts.q + "%"} OR ${masses.name} LIKE ${"%" + opts.q + "%"})`,
+    );
+  }
+  const where = conds.length ? and(...conds) : undefined;
+
+  const base = db
     .select({
       id: productionBatches.id,
       number: productionBatches.number,
@@ -332,9 +358,24 @@ export function listProductions(db: DB, opts: { from?: string; to?: string } = {
     .innerJoin(recipeVersions, eq(recipeVersions.id, productionBatches.recipeVersionId))
     .innerJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
     .innerJoin(masses, eq(masses.id, recipeVersions.massId))
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(productionBatches.productionDate), desc(productionBatches.number))
-    .all();
+    .where(where)
+    .orderBy(desc(productionBatches.productionDate), desc(productionBatches.number));
+
+  if (paging?.limit != null) {
+    const totalRow = db
+      .select({ c: sql<number>`COUNT(*)` })
+      .from(productionBatches)
+      .innerJoin(recipeVersions, eq(recipeVersions.id, productionBatches.recipeVersionId))
+      .innerJoin(recipes, eq(recipes.id, recipeVersions.recipeId))
+      .innerJoin(masses, eq(masses.id, recipeVersions.massId))
+      .where(where)
+      .get() as { c: number } | undefined;
+    return {
+      items: base.limit(paging.limit).offset(paging.offset ?? 0).all(),
+      total: Number(totalRow?.c ?? 0),
+    };
+  }
+  return base.all();
 }
 
 export function getProductionDetail(db: DB, id: number) {
@@ -486,13 +527,39 @@ export function annulProduction(db: DB, id: number, reason: string) {
   });
 }
 
-export function listYields(db: DB) {
-  return listProductions(db).map((p) => ({
+export type YieldListRow = ProductionListRow & {
+  deviationMicro: number;
+  yieldPercent: number;
+};
+
+export function listYields(
+  db: DB,
+  opts?: { from?: string; to?: string; q?: string },
+): YieldListRow[];
+export function listYields(
+  db: DB,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging,
+): PageResult<YieldListRow>;
+export function listYields(
+  db: DB,
+  opts: { from?: string; to?: string; q?: string } | undefined,
+  paging: ListPaging | undefined,
+): YieldListRow[] | PageResult<YieldListRow>;
+export function listYields(
+  db: DB,
+  opts: { from?: string; to?: string; q?: string } = {},
+  paging?: ListPaging,
+) {
+  const decorate = (p: ProductionListRow): YieldListRow => ({
     ...p,
     deviationMicro: p.realYieldMicro - p.expectedYieldMicro,
     yieldPercent:
       p.expectedYieldMicro > 0
         ? Math.round((p.realYieldMicro / p.expectedYieldMicro) * 10000) / 100
         : 0,
-  }));
+  });
+  const result = listProductions(db, opts, paging);
+  if (Array.isArray(result)) return result.map(decorate);
+  return { items: result.items.map(decorate), total: result.total };
 }
