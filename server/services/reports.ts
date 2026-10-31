@@ -21,6 +21,7 @@ import {
 import { and, asc, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import { addDaysISO, todayISO } from "../domain/dates";
 import { microToDecimal, microToDecimalTrim } from "../../shared/money";
+import { laborSummary } from "./labor";
 import type { DBOrTx } from "../domain/types";
 
 /** Cantidad micro → texto sin ceros sobrantes (igual que fmtQty de la UI). */
@@ -36,6 +37,7 @@ export type ReportName =
   | "ventas"
   | "rentabilidad"
   | "rentabilidad-productos"
+  | "labor"
   | "auditoria";
 
 export const REPORT_NAMES: ReportName[] = [
@@ -46,6 +48,7 @@ export const REPORT_NAMES: ReportName[] = [
   "ventas",
   "rentabilidad",
   "rentabilidad-productos",
+  "labor",
   "auditoria",
 ];
 
@@ -529,6 +532,36 @@ function rentabilidadProductosReport(db: DBOrTx, range: { from: string; to: stri
   };
 }
 
+function laborReport(db: DBOrTx, range: { from: string; to: string }): ReportResult {
+  const summary = laborSummary(db, range.from, range.to);
+  const rows = summary.ops.map((o) => ({
+    fecha: o.date,
+    tipo: o.kindLabel,
+    numero: o.number,
+    descripcion: o.name,
+    detalle: o.detail,
+    responsable: o.responsible ?? "—",
+    manoDeObra: o.laborCostMicro,
+  }));
+  return {
+    name: "labor",
+    title: `Mano de obra (${range.from} → ${range.to}) — total ${microToDecimal(summary.totals.totalMicro, 2)}`,
+    from: range.from,
+    to: range.to,
+    columns: [
+      { key: "fecha", label: "Fecha" },
+      { key: "tipo", label: "Proceso" },
+      { key: "numero", label: "Nº" },
+      { key: "descripcion", label: "Descripción" },
+      { key: "detalle", label: "Detalle" },
+      { key: "responsable", label: "Responsable" },
+      { key: "manoDeObra", label: "Mano de obra ($)", fmt: "money", align: "num" },
+    ],
+    rows,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 function auditoriaReport(db: DBOrTx, range: { from: string; to: string }): ReportResult {
   const rows = db
     .select({
@@ -580,6 +613,8 @@ export function buildReport(db: DBOrTx, name: string, opts: ReportRange = {}): R
       return rentabilidadReport(db, defaultRange(opts));
     case "rentabilidad-productos":
       return rentabilidadProductosReport(db, defaultRange(opts));
+    case "labor":
+      return laborReport(db, defaultRange(opts));
     case "auditoria":
       return auditoriaReport(db, defaultRange(opts));
     default:

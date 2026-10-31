@@ -18,6 +18,7 @@ import { elaborationsRouter } from "./routes/elaborations";
 import { plansRouter } from "./routes/plans";
 import { costSheetsRouter } from "./routes/costsheets";
 import { laborRatesRouter } from "./routes/laborrates";
+import { laborRouter } from "./routes/labor";
 import { productsRouter } from "./routes/products";
 import { transformationsRouter } from "./routes/transformations";
 import { salesRouter } from "./routes/sales";
@@ -109,6 +110,7 @@ function registerRoutes(app: express.Express): void {
   app.use("/api/plans", plansRouter);
   app.use("/api/cost-sheets", costSheetsRouter);
   app.use("/api/labor-rates", laborRatesRouter);
+  app.use("/api/labor", laborRouter);
   app.use("/api/products", productsRouter);
   app.use("/api/transformations", transformationsRouter);
   app.use("/api/sales", salesRouter);

@@ -21,6 +21,7 @@ import {
   ShoppingCart,
   TrendingUp,
   Truck,
+  Users,
   Wallet,
   Wheat,
 } from "lucide-react";
@@ -72,6 +73,7 @@ export const NAV: NavGroup[] = [
       { label: "Ingresos", path: "/finanzas/ingresos", icon: TrendingUp },
       { label: "Costos", path: "/finanzas/costos", icon: DollarSign },
       { label: "Gastos", path: "/finanzas/gastos", icon: Wallet },
+      { label: "Mano de obra", path: "/finanzas/mano-de-obra", icon: Users },
       { label: "Activos fijos", path: "/finanzas/activos", icon: Building2 },
       { label: "Rentabilidad", path: "/finanzas/rentabilidad", icon: Percent },
     ],

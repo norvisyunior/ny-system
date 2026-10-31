@@ -19,6 +19,7 @@ import { SalesPage } from "./pages/SalesPage";
 import { IngresosPage } from "./pages/IngresosPage";
 import { CostosPage } from "./pages/CostosPage";
 import { ExpensesPage } from "./pages/ExpensesPage";
+import { LaborPage } from "./pages/LaborPage";
 import { ProfitabilityPage } from "./pages/ProfitabilityPage";
 import { ClosingsPage } from "./pages/ClosingsPage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="/finanzas/ingresos" element={<IngresosPage />} />
           <Route path="/finanzas/costos" element={<CostosPage />} />
           <Route path="/finanzas/gastos" element={<ExpensesPage />} />
+          <Route path="/finanzas/mano-de-obra" element={<LaborPage />} />
           <Route path="/finanzas/activos" element={<AssetsPage />} />
           <Route path="/finanzas/rentabilidad" element={<ProfitabilityPage />} />
 
