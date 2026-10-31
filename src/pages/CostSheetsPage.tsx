@@ -1352,7 +1352,7 @@ export function CostSheetsPage() {
   const modoPeso = (ov.method || sheet?.yieldMethod || "directo") === "peso";
 
   return (
-    <div className="min-h-screen bg-[#f2f5fb] p-4 lg:p-6">
+    <div>
 
       {/* Breadcrumb + título + fecha de consulta */}
       <div className="mb-2 flex items-start justify-between gap-4">
