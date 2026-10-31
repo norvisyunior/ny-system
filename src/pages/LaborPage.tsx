@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import { ErrorAlert, Kpi, Modal, fmtMoney } from "../components/ui";
+import { ErrorAlert, Kpi, fmtMoney } from "../components/ui";
 
 type LaborKind = "produccion" | "elaboracion" | "terminacion";
 
@@ -154,122 +153,6 @@ function OpsTable({ ops }: { ops: LaborOpRow[] }) {
   );
 }
 
-/** Modal: registra como gasto el pago a los trabajadores, con monto editable. */
-function PayModal({
-  suggested,
-  byKind,
-  onClose,
-}: {
-  suggested: number;
-  byKind: Record<LaborKind, number>;
-  onClose: () => void;
-}) {
-  const [date, setDate] = useState(todayIso());
-  const [amount, setAmount] = useState(
-    suggested > 0 ? String(Number(suggested) / 1_000_000) : "",
-  );
-  const [method, setMethod] = useState("efectivo");
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const submit = async () => {
-    setSaving(true);
-    try {
-      const parts: string[] = [];
-      if (byKind.produccion > 0) parts.push(`producción ${fmtMoney(byKind.produccion)}`);
-      if (byKind.elaboracion > 0) parts.push(`elaboración ${fmtMoney(byKind.elaboracion)}`);
-      if (byKind.terminacion > 0) parts.push(`terminación ${fmtMoney(byKind.terminacion)}`);
-      const desc = parts.length
-        ? `Pago mano de obra (${parts.join(", ")})`
-        : "Pago de mano de obra";
-      await api.post("/expenses", {
-        expenseDate: date,
-        category: "Mano de obra",
-        description: desc,
-        amount: amount.trim(),
-        paymentMethod: method,
-        responsible: "Trabajadores",
-        notes: notes.trim() || null,
-      });
-      toast.success(`Pago registrado en Gastos: ${desc}`);
-      onClose();
-    } catch (e) {
-      toast.error((e as ApiError).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const valid = amount.trim() !== "" && Number(amount) > 0;
-
-  return (
-    <Modal title="Registrar pago de mano de obra" onClose={onClose}>
-      <div className="flex flex-col gap-3">
-        <p className="text-xs text-slate-500">
-          El pago se asienta como gasto de la fecha elegida (que puede ser posterior a los
-          días trabajados). El monto está prefijado con el total de la vista actual, pero
-          puede pagar más o menos: solo se aplica lo que consigne aquí.
-        </p>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="field">
-            <label>Fecha del gasto *</label>
-            <input
-              type="date"
-              max={todayIso()}
-              value={date}
-              onChange={(e) => e.target.value && setDate(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label>Monto a pagar ($) *</label>
-            <input
-              inputMode="decimal"
-              placeholder="0.00"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              autoFocus
-            />
-            {suggested > 0 && (
-              <p className="mt-1 text-xs text-slate-400">
-                Sugerido según la vista: {fmtMoney(suggested)}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="field">
-          <label>Método de pago *</label>
-          <select value={method} onChange={(e) => setMethod(e.target.value)}>
-            <option value="efectivo">Efectivo</option>
-            <option value="tarjeta">Tarjeta</option>
-            <option value="transferencia">Transferencia</option>
-            <option value="otro">Otro</option>
-          </select>
-        </div>
-        <div className="field">
-          <label>Nota</label>
-          <input
-            placeholder="Observaciones del pago (opcional)"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </div>
-        <div className="mt-2 flex justify-end gap-2">
-          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>
-            Cancelar
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={submit}
-            disabled={saving || !valid}
-          >
-            {saving ? "Registrando…" : "Registrar pago"}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 export function LaborPage() {
   const [from, setFrom] = useState(mondayOfToday());
   const [to, setTo] = useState(todayIso());
@@ -277,7 +160,6 @@ export function LaborPage() {
   const [summary, setSummary] = useState<LaborSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [payOpen, setPayOpen] = useState(false);
 
   const load = useCallback(async (f: string, t: string) => {
     setLoading(true);
@@ -324,33 +206,19 @@ export function LaborPage() {
     );
   };
 
-  const suggested = summary?.totals.totalMicro ?? 0;
-  const payByKind =
-    summary?.totals.byKind ?? { produccion: 0, elaboracion: 0, terminacion: 0 };
-
   return (
     <div>
       <PageHeader
         title="Mano de obra"
         subtitle="Lo que se debe pagar a los trabajadores: producciones, elaboraciones y empaquetado del período"
         actions={
-          <div className="flex gap-2">
-            <a
-              className="btn btn-secondary"
-              href={`/api/reports/labor/csv?from=${from}&to=${to}`}
-              download
-            >
-              Exportar CSV
-            </a>
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                setPayOpen(true);
-              }}
-            >
-              Registrar pago
-            </button>
-          </div>
+          <a
+            className="btn btn-secondary"
+            href={`/api/reports/labor/csv?from=${from}&to=${to}`}
+            download
+          >
+            Exportar CSV
+          </a>
         }
       />
       <ErrorAlert message={error} />
@@ -410,7 +278,7 @@ export function LaborPage() {
       {summary && (
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Kpi
-            label="Total a pagar"
+            label="Total de mano de obra"
             value={fmtMoney(summary.totals.totalMicro)}
             sub={`${summary.totals.opsCount} operación(es)`}
             tone={summary.totals.totalMicro > 0 ? "green" : undefined}
@@ -496,14 +364,6 @@ export function LaborPage() {
             </div>
           )}
         </div>
-      )}
-
-      {payOpen && (
-        <PayModal
-          suggested={suggested}
-          byKind={payByKind}
-          onClose={() => setPayOpen(false)}
-        />
       )}
     </div>
   );
