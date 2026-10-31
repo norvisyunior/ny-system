@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { CheckCircle2, X } from "lucide-react";
 import { api, ApiError } from "../api/client";
+import { useConfirm } from "../app/ConfirmContext";
 import { microToDecimalTrim } from "@shared/money";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
@@ -279,6 +281,7 @@ export function ProductionsPage() {
       }
       setView("list");
       list.reload();
+      toast.success(`Producción #${fmtDocNumber(res.number)} confirmada: masas registradas`);
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -295,20 +298,25 @@ export function ProductionsPage() {
     }
   };
 
+  const confirmDialog = useConfirm();
+
   const annul = async () => {
     if (!detail) return;
-    if (
-      !window.confirm(
-        `¿Anular la producción #${fmtDocNumber(detail.number)}? Esta acción revierte el inventario y queda auditada.`,
-      )
-    )
-      return;
+    const ok = await confirmDialog({
+      title: `¿Anular la producción #${fmtDocNumber(detail.number)}?`,
+      description:
+        "La producción quedará anulada con trazabilidad, revirtiendo el consumo de materias primas y masas. La acción no podrá deshacerse.",
+      confirmLabel: "Anular producción",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.post(`/productions/${detail.id}/annul`, { reason: annulReason });
+      toast.success(`Producción #${fmtDocNumber(detail.number)} anulada`);
       setDetail(null);
       list.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     }
   };
 

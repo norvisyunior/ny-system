@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { ArrowDownCircle, Eye, Pencil, SlidersHorizontal } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
@@ -187,6 +188,7 @@ export function SuppliesPage() {
       };
       if (form.id) await api.put(`/supplies/${form.id}`, body);
       else await api.post("/supplies", body);
+      toast.success(form.id ? "Insumo actualizado" : "Insumo creado");
       setForm(null);
       list.reload();
     } catch (e) {
@@ -661,6 +663,7 @@ function ConsumeModal({
         businessDate: date === todayISO() ? undefined : date,
         notes: notes.trim() || null,
       });
+      toast.success(`Consumo de ${target.name} registrado (PEPS)`);
       onDone?.();
       onClose();
     } catch (e) {

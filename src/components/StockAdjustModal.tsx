@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import { ErrorAlert, Modal, todayISO } from "./ui";
 import { microToDecimalTrim } from "@shared/money";
@@ -75,6 +76,11 @@ export function StockAdjustModal({
               reason: reason.trim(),
             };
       await api.post("/inventory/adjustments", body);
+      toast.success(
+        mode === "merma"
+          ? "Merma registrada en el inventario"
+          : "Ajuste de inventario aplicado",
+      );
       onDone?.();
       onClose();
     } catch (e) {

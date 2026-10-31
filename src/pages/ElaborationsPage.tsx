@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Plus, RotateCcw, Trash2 } from "lucide-react";
 import { api, ApiError } from "../api/client";
+import { useConfirm } from "../app/ConfirmContext";
 import { parseDecimalToMicro, divRoundAway, microToDecimalTrim } from "@shared/money";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
@@ -417,6 +419,7 @@ export function ElaborationsPage() {
       );
       templateRef.current = tpl;
       setHasTemplate(true);
+      toast.success("Plantilla de elaboración guardada");
       // Actualiza ratios y marca las líneas como limpias (de la plantilla).
       const ratioById = new Map(tpl.lines.map((tl) => [tl.rawMaterialId, tl.qtyPerUnitMicro]));
       setLines((ls) =>
@@ -429,7 +432,7 @@ export function ElaborationsPage() {
       );
       return true;
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
       return false;
     }
   };
@@ -452,6 +455,8 @@ export function ElaborationsPage() {
     );
   };
 
+  const confirmDialog = useConfirm();
+
   const save = async () => {
     if (!canSave) return;
     setSaving(true);
@@ -472,11 +477,18 @@ export function ElaborationsPage() {
       });
       // Sin plantilla: ofrece guardar lo consumido como receta de este material.
       if (!templateRef.current && completeLines.length > 0) {
-        if (window.confirm("¿Guardar estas cantidades como plantilla de elaboración para este material?")) {
+        const saveTpl = await confirmDialog({
+          title: "¿Guardar plantilla de elaboración?",
+          description:
+            "Puede guardar estas cantidades como plantilla de elaboración para este material, para reutilizarlas en próximas elaboraciones.",
+          confirmLabel: "Guardar plantilla",
+        });
+        if (saveTpl) {
           setSaving(true);
           await saveTemplate();
         }
       }
+      toast.success("Elaboración registrada: inventario actualizado");
       setView("list");
       list.reload();
     } catch (e) {
@@ -497,18 +509,21 @@ export function ElaborationsPage() {
 
   const annul = async () => {
     if (!detail) return;
-    if (
-      !window.confirm(
-        `¿Anular la elaboración #${fmtDocNumber(detail.number)}? Esta acción revierte el inventario y queda auditada.`,
-      )
-    )
-      return;
+    const ok = await confirmDialog({
+      title: `¿Anular la elaboración #${fmtDocNumber(detail.number)}?`,
+      description:
+        "La elaboración quedará anulada con trazabilidad, revirtiendo el inventario por lotes. La acción no podrá deshacerse.",
+      confirmLabel: "Anular elaboración",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.post(`/elaborations/${detail.id}/annul`, { reason: annulReason });
+      toast.success(`Elaboración #${fmtDocNumber(detail.number)} anulada`);
       setDetail(null);
       list.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     }
   };
 

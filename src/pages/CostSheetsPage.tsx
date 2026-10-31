@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { microToDecimalTrim } from "@shared/money";
 import {
   Boxes,
@@ -1151,6 +1152,11 @@ export function CostSheetsPage() {
         : { kind: "terminacion", productId: rateModal.id, rate: rateVal };
     try {
       await api.put("/labor-rates", body);
+      toast.success(
+        rateModal.kind === "masa"
+          ? "Tasa de mano de obra (elaboración) actualizada"
+          : "Tasa de mano de obra (terminación) actualizada",
+      );
       setOv((o) => ({ ...o, [rateModal.kind === "masa" ? "elabRate" : "termRate"]: "" }));
       setRateModal(null);
       setRateVal("");
@@ -1286,6 +1292,7 @@ export function CostSheetsPage() {
       setOv(emptyOv());
       setRemovedIds([]);
       setAddedLines([]);
+      toast.success("Receta actualizada con los datos de la ficha (nueva versión)");
       const target = pendingNav.current;
       pendingNav.current = null;
       if (target) navigateTo(target);

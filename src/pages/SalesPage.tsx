@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
+import { useConfirm } from "../app/ConfirmContext";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
 import { usePaged } from "../hooks/usePaged";
@@ -179,6 +181,7 @@ export function SalesPage() {
         paymentMethod: form.paymentMethod,
         items,
       });
+      toast.success("Venta registrada: inventario y COGS actualizados");
       setView("list");
       list.reload();
     } catch (e) {
@@ -197,20 +200,24 @@ export function SalesPage() {
     }
   };
 
+  const confirmAnnul = useConfirm();
+
   const annul = async () => {
     if (!detail) return;
-    if (
-      !window.confirm(
-        `¿Anular la venta #${fmtDocNumber(detail.number)}? Esta acción repone el inventario y queda auditada.`,
-      )
-    )
-      return;
+    const ok = await confirmAnnul({
+      title: `¿Anular la venta #${fmtDocNumber(detail.number)}?`,
+      description: "La venta quedará anulada con trazabilidad, reponiendo el inventario y el COGS. La acción no podrá deshacerse.",
+      confirmLabel: "Anular venta",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.post(`/sales/${detail.id}/annul`, { reason: annulReason });
+      toast.success(`Venta #${fmtDocNumber(detail.number)} anulada`);
       setDetail(null);
       list.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     }
   };
 

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
+import { useConfirm } from "../app/ConfirmContext";
 import { microToDecimalTrim } from "@shared/money";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
@@ -375,12 +377,15 @@ export function TransformationsPage() {
       });
       setView("list");
       list.reload();
+      toast.success("Transformación confirmada: masa consumida y productos terminados creados");
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
       setSaving(false);
     }
   };
+
+  const confirmDialog = useConfirm();
 
   const openDetail = async (id: number) => {
     setAnnulReason("");
@@ -393,18 +398,21 @@ export function TransformationsPage() {
 
   const annul = async () => {
     if (!detail) return;
-    if (
-      !window.confirm(
-        `¿Anular la transformación #${fmtDocNumber(detail.number)}? Esta acción revierte el inventario y queda auditada.`,
-      )
-    )
-      return;
+    const ok = await confirmDialog({
+      title: `¿Anular la transformación #${fmtDocNumber(detail.number)}?`,
+      description:
+        "La transformación quedará anulada con trazabilidad, revirtiendo el inventario de masas y productos. La acción no podrá deshacerse.",
+      confirmLabel: "Anular transformación",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.post(`/transformations/${detail.id}/annul`, { reason: annulReason });
+      toast.success(`Transformación #${fmtDocNumber(detail.number)} anulada`);
       setDetail(null);
       list.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     }
   };
 

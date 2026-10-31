@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
@@ -170,10 +171,11 @@ export function ClosingsPage() {
         counts,
         notes: notes || null,
       });
+      toast.success(`Día ${date} cerrado correctamente`);
       await loadDate(date);
       closings.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     } finally {
       setSaving(false);
     }
@@ -182,12 +184,13 @@ export function ClosingsPage() {
   const reopen = async () => {
     try {
       await api.post(`/closings/${date}/reopen`, { reason: reopenReason });
+      toast.success(`Día ${date} reabierto para correcciones`);
       setReopenOpen(false);
       setReopenReason("");
       await loadDate(date);
       closings.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     }
   };
 

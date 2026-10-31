@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { microToDecimalTrim } from "@shared/money";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
@@ -238,6 +239,7 @@ export function RecipesPage() {
         productId: Number(header.productId),
         version: bodyPayload(),
       });
+      toast.success("Receta creada con su primera versión");
       setCreateOpen(false);
       list.reload();
       loadUsedProductIds();
@@ -293,6 +295,7 @@ export function RecipesPage() {
         description: header.description || null,
         version: bodyPayload(),
       });
+      toast.success("Receta actualizada: nueva versión creada");
       setEditing(null);
       list.reload();
       loadUsedProductIds();

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Archive, Eye, Pencil } from "lucide-react";
 import { api, ApiError } from "../api/client";
+import { useConfirm } from "../app/ConfirmContext";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
 import { RowAction, RowActions } from "../components/RowActions";
@@ -165,6 +167,7 @@ export function AssetsPage() {
       };
       if (form.id) await api.put(`/assets/${form.id}`, body);
       else await api.post("/assets", body);
+      toast.success(form.id ? "Activo actualizado" : `Activo creado`);
       setForm(null);
       list.reload();
     } catch (e) {
@@ -592,6 +595,9 @@ function DepreciateModal({ onClose, onDone }: { onClose: () => void; onDone?: ()
         totalMicro: number;
       }>("/assets/depreciate", { untilPeriod: period });
       setResult(r);
+      toast.success(
+        `Depreciación asentada hasta ${r.untilPeriod}: ${r.created} cuota(s) por ${fmtMoney(r.totalMicro)}`,
+      );
       onDone?.();
     } catch (e) {
       setError((e as ApiError).message);
@@ -660,13 +666,17 @@ function DisposeModal({
     expenseId: number | null;
   } | null>(null);
 
+  const confirmDispose = useConfirm();
+
   const run = async () => {
-    if (
-      !window.confirm(
-        `¿Dar de baja el activo ${target.code} — ${target.name}? Se asentará la depreciación hasta el mes de la baja y no podrá revertirse.`,
-      )
-    )
-      return;
+    const ok = await confirmDispose({
+      title: `¿Dar de baja ${target.code} — ${target.name}?`,
+      description:
+        "Se asentará la depreciación hasta el mes de la baja y el activo quedará cerrado: no podrá revertirse ni editarse.",
+      confirmLabel: "Dar de baja",
+      danger: true,
+    });
+    if (!ok) return;
     setSaving(true);
     setError(null);
     try {
@@ -682,9 +692,14 @@ function DisposeModal({
         reason: reason.trim() || null,
       });
       setResult(r);
+      toast.success(
+        r.lossMicro > 0
+          ? `Baja registrada con pérdida de ${fmtMoney(r.lossMicro)}`
+          : "Baja registrada",
+      );
       onDone?.();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     } finally {
       setSaving(false);
     }

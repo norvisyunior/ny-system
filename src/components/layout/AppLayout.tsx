@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { CalendarDays, Clock, LayoutGrid } from "lucide-react";
+import { Toaster } from "sonner";
 import { api } from "../../api/client";
+import { ConfirmProvider } from "../../app/ConfirmContext";
 import { SelectedDateProvider, useSelectedDate } from "../../app/SelectedDateContext";
 import { fmtLongDate, todayISO } from "../ui";
 import { Sidebar } from "./Sidebar";
@@ -146,7 +148,29 @@ function Shell() {
 export function AppLayout() {
   return (
     <SelectedDateProvider>
-      <Shell />
+      <ConfirmProvider>
+        <Shell />
+        <Toaster
+          position="bottom-right"
+          expand={false}
+          visibleToasts={4}
+          offset={16}
+          toastOptions={{
+            classNames: {
+              toast:
+                "rounded-lg! border! shadow-sm! text-sm! font-medium",
+              success: "bg-emerald-700! border-emerald-800! text-white!",
+              error: "bg-red-600! border-red-700! text-white!",
+              warning: "bg-amber-500! border-amber-600! text-white!",
+              info: "bg-slate-800! border-slate-900! text-white!",
+              description: "text-white/80! text-xs!",
+              actionButton: "font-semibold! text-sm!",
+              closeButton:
+                "border-slate-800/40! bg-black/10! text-white!",
+            },
+          }}
+        />
+      </ConfirmProvider>
     </SelectedDateProvider>
   );
 }

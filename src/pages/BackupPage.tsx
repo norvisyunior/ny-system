@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
@@ -76,7 +77,7 @@ export function BackupPage() {
     try {
       const s = await api.put<AppSettings>("/settings", { businessName: name });
       setSettings(s);
-      setMsg("Configuración guardada.");
+      toast.success("Configuración guardada");
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -86,31 +87,32 @@ export function BackupPage() {
 
   const createBackup = async () => {
     setError(null);
-    setMsg(null);
     try {
       const info = await api.post<BackupRow>("/backups");
-      setMsg(`Respaldo creado: ${info.file}`);
+      toast.success(`Respaldo creado: ${info.file}`);
       backups.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     }
   };
 
   const restore = async () => {
     if (!restoreTarget) return;
     setError(null);
-    setMsg(null);
     try {
       const r = await api.post<{ restored: string; safetyCopy: string }>(
         `/backups/${restoreTarget.file}/restore`,
         { confirm: true },
       );
       setRestoreTarget(null);
-      setMsg(`Restaurado desde ${r.restored}. Copia de seguridad previa: ${r.safetyCopy}.`);
+      toast.success(
+        `Base de datos restaurada desde ${r.restored}. Copia de seguridad previa: ${r.safetyCopy}.`,
+        { duration: 8000 },
+      );
       loadSettings();
       backups.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     }
   };
 
@@ -146,13 +148,14 @@ export function BackupPage() {
         { confirm: true, keepDays: auditTarget.keepDays },
       );
       setAuditTarget(null);
-      setMsg(
+      toast.success(
         `Auditoría depurada: ${r.deleted} evento(s) eliminado(s) anteriores a ${r.cutoff}. Quedan ${r.remaining}.` +
           (r.vacuumed ? " El archivo se compactó." : ""),
+        { duration: 8000 },
       );
       loadAuditPreview();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     } finally {
       setAuditBusy(false);
     }

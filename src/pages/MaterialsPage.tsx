@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Eye, Pencil, SlidersHorizontal } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
@@ -156,6 +157,7 @@ export function MaterialsPage() {
       };
       if (form.id) await api.put(`/materials/${form.id}`, body);
       else await api.post("/materials", body);
+      toast.success(form.id ? "Materia prima actualizada" : "Materia prima creada");
       setForm(null);
       list.reload();
     } catch (e) {

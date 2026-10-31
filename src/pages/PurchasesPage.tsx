@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
+import { useConfirm } from "../app/ConfirmContext";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
 import { usePaged } from "../hooks/usePaged";
@@ -224,6 +226,7 @@ export function PurchasesPage() {
       setForm((f) => ({ ...f, supplierId: String(s.id) }));
       setNewSupplier({ name: "", phone: "", address: "" });
       setShowNewSupplier(false);
+      toast.success(`Proveedor "${s.name}" creado y seleccionado`);
     } catch (e) {
       setError((e as ApiError).message);
     } finally {
@@ -257,6 +260,7 @@ export function PurchasesPage() {
         notes: form.notes || null,
         items,
       });
+      toast.success("Compra confirmada: inventario actualizado por lotes PEPS");
       setView("list");
       list.reload();
     } catch (e) {
@@ -275,15 +279,25 @@ export function PurchasesPage() {
     }
   };
 
+  const confirmAnnul = useConfirm();
+
   const annul = async () => {
     if (!detail) return;
-    if (!window.confirm(`¿Anular la compra #${fmtDocNumber(detail.number)}? Esta acción revierte el inventario y queda auditada.`)) return;
+    const ok = await confirmAnnul({
+      title: `¿Anular la compra #${fmtDocNumber(detail.number)}?`,
+      description:
+        "La compra quedará anulada con trazabilidad, revirtiendo el inventario por lotes. La acción no podrá deshacerse.",
+      confirmLabel: "Anular compra",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.post(`/purchases/${detail.id}/annul`, { reason: annulReason });
+      toast.success(`Compra #${fmtDocNumber(detail.number)} anulada`);
       setDetail(null);
       list.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     }
   };
 

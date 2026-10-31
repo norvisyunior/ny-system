@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Eye, Pencil, SlidersHorizontal } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
@@ -142,6 +143,7 @@ export function ProductsPage() {
       };
       if (editing !== null && editing !== "new") await api.put(`/products/${editing}`, body);
       else await api.post("/products", body);
+      toast.success(editing !== null && editing !== "new" ? "Producto actualizado" : "Producto creado");
       setEditing(null);
       list.reload();
     } catch (e) {

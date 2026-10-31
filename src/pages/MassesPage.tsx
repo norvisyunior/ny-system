@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Eye, Pencil, SlidersHorizontal } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
@@ -117,6 +118,7 @@ export function MassesPage() {
       };
       if (editing !== null && editing !== "new") await api.put(`/masses/${editing}`, body);
       else await api.post("/masses", body);
+      toast.success(editing !== null && editing !== "new" ? "Masa actualizada" : "Masa creada");
       setEditing(null);
       list.reload();
     } catch (e) {

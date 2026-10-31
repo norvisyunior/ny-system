@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
@@ -59,6 +60,7 @@ export function SuppliersPage() {
       };
       if (editing !== null && editing !== "new") await api.put(`/suppliers/${editing}`, body);
       else await api.post("/suppliers", body);
+      toast.success(editing !== null && editing !== "new" ? "Proveedor actualizado" : "Proveedor creado");
       setEditing(null);
       setForm(EMPTY);
       list.reload();

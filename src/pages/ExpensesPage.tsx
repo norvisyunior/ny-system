@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
@@ -95,6 +96,7 @@ export function ExpensesPage() {
         responsible: form.responsible || null,
         notes: form.notes || null,
       });
+      toast.success("Gasto registrado");
       setView("list");
       list.reload();
     } catch (e) {
@@ -108,11 +110,12 @@ export function ExpensesPage() {
     if (!annulTarget) return;
     try {
       await api.post(`/expenses/${annulTarget.id}/annul`, { reason: annulReason });
+      toast.success(`Gasto #${annulTarget.id} anulado`);
       setAnnulTarget(null);
       setAnnulReason("");
       list.reload();
     } catch (e) {
-      setError((e as ApiError).message);
+      toast.error((e as ApiError).message);
     }
   };
 
