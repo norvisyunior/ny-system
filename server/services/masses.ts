@@ -181,7 +181,13 @@ export function getMassDetail(db: DB, id: number) {
     .from(inventoryMovements)
     .where(and(eq(inventoryMovements.itemType, "mass"), eq(inventoryMovements.itemId, id)))
     .orderBy(desc(inventoryMovements.id))
-    .limit(100)
+    .limit(5)
     .all();
-  return { mass, lots, movements, stockValueMicro };
+  return {
+    mass,
+    lots: lots.slice(0, 5),
+    lotsTotal: lots.length,
+    movements,
+    stockValueMicro,
+  };
 }

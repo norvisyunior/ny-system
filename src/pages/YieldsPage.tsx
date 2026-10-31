@@ -78,12 +78,12 @@ export function YieldsPage() {
     <div>
       <PageHeader
         title="Rendimientos"
-        subtitle="Desviaciones del proceso: terminación (paquetes reales vs receta) y elaboración (masas reales vs plan)"
+        subtitle="Desviaciones del proceso: terminación (paquetes reales vs receta) y elaboración (masas reales vs esperadas)"
       />
       <Callout tone="info" title="Para qué sirve esta pantalla">
         Compara lo esperado contra lo real: en la terminación, los paquetes obtenidos frente a
-        los que decía la receta; en la elaboración, las masas hechas frente al plan. Una
-        desviación grande suele significar pérdida de materia prima o un error de captura.
+        los que decía la receta; en la elaboración, las masas hechas frente a las esperadas.
+        Una desviación grande suele significar pérdida de materia prima o un error de captura.
       </Callout>
       <ErrorAlert message={terms.error ?? elabs.error} />
 
@@ -207,8 +207,7 @@ export function YieldsPage() {
             Elaboración — masas esperadas vs reales
           </h3>
           <p className="text-xs text-slate-500">
-            Con plan, lo esperado es lo planificado; sin plan, lo esperado es igual a lo
-            elaborado (100%).
+            Sin planificación previa, lo esperado es igual a lo elaborado (100%).
           </p>
         </div>
         <table className="table-ny">
@@ -287,7 +286,7 @@ export function YieldsPage() {
       <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
         La <strong>desviación de terminación</strong> (Real − Esperado en paquetes) refleja
         pérdidas o sobrantes al empaquetar; la de <strong>elaboración</strong> compara las masas
-        hechas contra el plan. Costo total de las terminaciones de la página:{" "}
+        hechas contra las esperadas. Costo total de las terminaciones de la página:{" "}
         <strong>{fmtMoney(terms.rows.reduce((acc, r) => acc + r.totalCostMicro, 0))}</strong>
         {avgElab != null && (
           <>

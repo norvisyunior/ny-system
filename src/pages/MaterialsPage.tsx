@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { Eye, Pencil, SlidersHorizontal } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
+import { RowAction, RowActions } from "../components/RowActions";
 import { StockAdjustModal, type StockAdjustTarget } from "../components/StockAdjustModal";
 import { Badge, ErrorAlert, FlowGuide, Modal, SearchInput, fmtMoney, fmtQty, stockLevel } from "../components/ui";
 import { usePaged } from "../hooks/usePaged";
@@ -22,8 +24,13 @@ interface MaterialListItem {
   dimension: string;
   stockMicro: number;
   minStockMicro: number;
+  elaborated: boolean;
   active: boolean;
   stockValueMicro: number;
+  lastCost: {
+    costMicro: number;
+    date: string;
+  } | null;
   lastPrice: {
     priceMicro: number;
     unitId: string;
@@ -42,6 +49,7 @@ interface MaterialDetail {
     unitId: string;
     stockMicro: number;
     minStockMicro: number;
+    elaborated: boolean;
     active: boolean;
     updatedAt: string | null;
   };
@@ -54,6 +62,7 @@ interface MaterialDetail {
     refType: string;
     refId: number;
   }[];
+  lotsTotal: number;
   priceHistory: {
     date: string;
     purchaseNumber: number;
@@ -63,6 +72,7 @@ interface MaterialDetail {
     priceMicro: number;
     lineTotalMicro: number;
   }[];
+  priceHistoryTotal: number;
   stockValueMicro: number;
 }
 
@@ -72,6 +82,7 @@ const EMPTY = {
   category: "",
   unitId: "kg",
   minStock: "0",
+  elaborated: false,
   active: true,
 };
 
@@ -124,6 +135,7 @@ export function MaterialsPage() {
       category: m.category ?? "",
       unitId: m.unitId,
       minStock: fmtQty(m.minStockMicro, null, 3),
+      elaborated: m.elaborated,
       active: m.active,
     });
   };
@@ -139,6 +151,7 @@ export function MaterialsPage() {
         category: form.category || null,
         unitId: form.unitId,
         minStock: form.minStock || "0",
+        elaborated: form.elaborated,
         active: form.active,
       };
       if (form.id) await api.put(`/materials/${form.id}`, body);
@@ -185,7 +198,7 @@ export function MaterialsPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <table className="table-ny">
+        <table className="table-ny inventory-table">
           <thead>
             <tr>
               <th>Nombre</th>
@@ -193,15 +206,18 @@ export function MaterialsPage() {
               <th className="center">Stock</th>
               <th className="center">Mínimo</th>
               <th className="num">Última compra</th>
+              <th className="num">Último costo</th>
               <th className="num">Valor inventario</th>
               <th className="center">Estado</th>
-              <th></th>
+              <th className="w-28 text-right">
+                <span className="sr-only">Acciones</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-slate-400">
+                <td colSpan={9} className="py-8 text-center text-slate-400">
                   {list.loading ? "Cargando…" : "Sin materias primas registradas."}
                 </td>
               </tr>
@@ -210,7 +226,14 @@ export function MaterialsPage() {
               const level = stockLevel(m.stockMicro, m.minStockMicro);
               return (
                 <tr key={m.id}>
-                  <td className="font-medium">{m.name}</td>
+                  <td className="font-medium">
+                    {m.name}
+                    {m.elaborated && (
+                      <span className="ml-2">
+                        <Badge tone="blue">Elaborada</Badge>
+                      </span>
+                    )}
+                  </td>
                   <td>{m.category ?? "—"}</td>
                   <td className="center">
                     <span className={`stock-chip ${level}`}>
@@ -226,21 +249,23 @@ export function MaterialsPage() {
                       ? `${fmtMoney(m.lastPrice.priceMicro)}/${m.lastPrice.unitId} (${m.lastPrice.date})`
                       : "—"}
                   </td>
+                  <td className="num">
+                    {m.lastCost
+                      ? `${fmtMoney(m.lastCost.costMicro)}/${m.unitId} (${m.lastCost.date})`
+                      : "—"}
+                  </td>
                   <td className="num font-semibold">{fmtMoney(m.stockValueMicro)}</td>
                   <td className="center">
                     {m.active ? <Badge tone="green">Activa</Badge> : <Badge tone="red">Inactiva</Badge>}
                   </td>
                   <td className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <button className="btn btn-secondary" onClick={() => openDetail(m.id)}>
-                        Detalle
-                      </button>
-                      <button className="btn btn-secondary" onClick={() => openEdit(m)}>
-                        Editar
-                      </button>
-                      <button
-                        className="btn btn-secondary"
-                        title="Ajustar stock exacto o registrar merma"
+                    <RowActions>
+                      <RowAction icon={Eye} label="Ver detalle" onClick={() => openDetail(m.id)} />
+                      <RowAction icon={Pencil} label="Editar" onClick={() => openEdit(m)} />
+                      <RowAction
+                        icon={SlidersHorizontal}
+                        label="Ajustar stock o registrar merma"
+                        tone="adjust"
                         onClick={() =>
                           setAdjustTarget({
                             itemType: "raw",
@@ -250,10 +275,8 @@ export function MaterialsPage() {
                             stockMicro: m.stockMicro,
                           })
                         }
-                      >
-                        Ajustar / Merma
-                      </button>
-                    </div>
+                      />
+                    </RowActions>
                   </td>
                 </tr>
               );
@@ -341,15 +364,33 @@ export function MaterialsPage() {
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
             </div>
-            <div className="field w-40">
-              <label>Estado</label>
-              <select
-                value={form.active ? "1" : "0"}
-                onChange={(e) => setForm({ ...form, active: e.target.value === "1" })}
-              >
-                <option value="1">Activa</option>
-                <option value="0">Inactiva</option>
-              </select>
+            <div className="flex items-end gap-6">
+              <div className="field w-40">
+                <label>Estado</label>
+                <select
+                  value={form.active ? "1" : "0"}
+                  onChange={(e) => setForm({ ...form, active: e.target.value === "1" })}
+                >
+                  <option value="1">Activa</option>
+                  <option value="0">Inactiva</option>
+                </select>
+              </div>
+              <label className="mb-2 flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={form.elaborated}
+                  onChange={(e) => setForm({ ...form, elaborated: e.target.checked })}
+                />
+                <span>
+                  Se elabora internamente (también se puede comprar)
+                  <span className="mt-0.5 block text-[11px] text-slate-500">
+                    Podrá producirse en Elaboraciones consumiendo otras materias primas y también
+                    registrarse en Compras. Cada entrada lleva su costo real y PEPS decide qué lote
+                    se consume.
+                  </span>
+                </span>
+              </label>
             </div>
             <div className="mt-2 flex justify-end gap-2">
               <button className="btn btn-secondary" onClick={() => setForm(null)}>
@@ -418,7 +459,11 @@ export function MaterialsPage() {
                   <tr key={l.id}>
                     <td>{l.businessDate}</td>
                     <td className="text-xs text-slate-500">
-                      {l.refType === "purchase" ? `Compra #${String(l.refId).padStart(5, "0")}` : l.refType}
+                      {l.refType === "purchase"
+                        ? `Compra #${String(l.refId).padStart(5, "0")}`
+                        : l.refType === "elaboration"
+                          ? `Elaboración #${String(l.refId).padStart(5, "0")}`
+                          : l.refType}
                     </td>
                     <td className="num">{fmtQty(l.qtyInitialMicro, detail.material.unitId)}</td>
                     <td className="num font-semibold">{fmtQty(l.qtyRemainingMicro, detail.material.unitId)}</td>
@@ -429,6 +474,12 @@ export function MaterialsPage() {
               </tbody>
             </table>
           </div>
+          {detail.lotsTotal > detail.lots.length && (
+            <p className="mt-1 text-xs text-slate-500">
+              Mostrando los {detail.lots.length} lotes más antiguos de {detail.lotsTotal} pendientes; los
+              demás se consumirán después.
+            </p>
+          )}
 
           <h3 className="mb-2 mt-5 text-sm font-bold text-slate-700">
             Historial de precios de compra (precio real pagado)
@@ -466,6 +517,12 @@ export function MaterialsPage() {
               </tbody>
             </table>
           </div>
+          {detail.priceHistoryTotal > detail.priceHistory.length && (
+            <p className="mt-1 text-xs text-slate-500">
+              Mostrando las {detail.priceHistory.length} compras más recientes de {detail.priceHistoryTotal};
+              el historial completo está en Compras.
+            </p>
+          )}
 
           <div className="mt-4 flex justify-end">
             <button

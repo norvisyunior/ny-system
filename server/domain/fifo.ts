@@ -12,9 +12,9 @@ export interface LotConsume {
 }
 
 export interface CreateLotInput {
-  itemType: "raw" | "mass" | "product";
+  itemType: "raw" | "mass" | "product" | "supply";
   itemId: number;
-  refType: "purchase" | "production" | "transformation" | "ajuste";
+  refType: "purchase" | "production" | "transformation" | "elaboration" | "ajuste";
   refId: number;
   qtyMicro: number;
   unitCostMicro: number;
@@ -102,7 +102,7 @@ export function estimatedAvgCost(tx: DBOrTx, itemType: string, itemId: number): 
  */
 export function consumeFIFO(
   tx: DBOrTx,
-  itemType: "raw" | "mass" | "product",
+  itemType: "raw" | "mass" | "product" | "supply",
   itemId: number,
   qtyMicro: number,
   itemName: string,

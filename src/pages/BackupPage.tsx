@@ -18,6 +18,14 @@ interface BackupRow {
   kind: "manual" | "auto" | "safety";
 }
 
+interface AuditPreview {
+  keepDays: number;
+  cutoff: string;
+  candidates: number;
+  remaining: number;
+  oldest: string | null;
+}
+
 const KIND_LABEL: Record<string, string> = {
   manual: "Manual",
   auto: "Automático",
@@ -31,6 +39,10 @@ export function BackupPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<BackupRow | null>(null);
+  const [auditDays, setAuditDays] = useState("180");
+  const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
+  const [auditTarget, setAuditTarget] = useState<AuditPreview | null>(null);
+  const [auditBusy, setAuditBusy] = useState(false);
   const backups = usePaged<BackupRow>(({ page, pageSize }) =>
     api.get(`/backups?page=${page}&pageSize=${pageSize}`),
   );
@@ -45,6 +57,17 @@ export function BackupPage() {
       .catch((e: ApiError) => setError(e.message));
   }, []);
   useEffect(loadSettings, [loadSettings]);
+
+  const loadAuditPreview = useCallback(() => {
+    api
+      .get<AuditPreview>("/backups/maintenance/audit")
+      .then((p) => {
+        setAuditPreview(p);
+        setAuditDays(String(p.keepDays));
+      })
+      .catch((e: ApiError) => setError(e.message));
+  }, []);
+  useEffect(loadAuditPreview, [loadAuditPreview]);
 
   const saveSettings = async () => {
     setSaving(true);
@@ -88,6 +111,50 @@ export function BackupPage() {
       backups.reload();
     } catch (e) {
       setError((e as ApiError).message);
+    }
+  };
+
+  const reviewAudit = async () => {
+    const days = Number(auditDays);
+    if (!Number.isInteger(days) || days < 7 || days > 3650) {
+      setError("Indique entre 7 y 3650 días de auditoría a conservar.");
+      return;
+    }
+    setError(null);
+    setMsg(null);
+    try {
+      const p = await api.get<AuditPreview>(`/backups/maintenance/audit?keepDays=${days}`);
+      setAuditPreview(p);
+      if (p.candidates === 0) {
+        setMsg(`No hay eventos de auditoría anteriores a ${p.cutoff}.`);
+        return;
+      }
+      setAuditTarget(p);
+    } catch (e) {
+      setError((e as ApiError).message);
+    }
+  };
+
+  const purgeAuditLogs = async () => {
+    if (!auditTarget) return;
+    setAuditBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const r = await api.post<{ deleted: number; remaining: number; vacuumed: boolean; cutoff: string }>(
+        "/backups/maintenance/audit/purge",
+        { confirm: true, keepDays: auditTarget.keepDays },
+      );
+      setAuditTarget(null);
+      setMsg(
+        `Auditoría depurada: ${r.deleted} evento(s) eliminado(s) anteriores a ${r.cutoff}. Quedan ${r.remaining}.` +
+          (r.vacuumed ? " El archivo se compactó." : ""),
+      );
+      loadAuditPreview();
+    } catch (e) {
+      setError((e as ApiError).message);
+    } finally {
+      setAuditBusy(false);
     }
   };
 
@@ -139,12 +206,43 @@ export function BackupPage() {
         <div className="card p-5">
           <h3 className="mb-3 text-sm font-bold text-slate-700">Respaldo ahora</h3>
           <p className="mb-3 text-sm text-slate-600">
-            Se crea una copia consistente de la base completa en <code>data/backups/</code>.
-            Se conservan los últimos 20 respaldos y uno automático diario al iniciar.
+            Se crea una copia consistente de la base completa en <code>data/backups/</code>. Los
+            respaldos son manuales; además se crea uno automático al mes (al iniciar la app o al
+            cambiar el mes). Se conservan hasta 36 respaldos.
           </p>
           <button className="btn btn-primary" onClick={createBackup}>
             + Crear respaldo manual
           </button>
+        </div>
+      </div>
+
+      <div className="card mb-6 p-5">
+        <h3 className="mb-2 text-sm font-bold text-slate-700">Mantenimiento de la auditoría</h3>
+        <p className="mb-3 text-sm text-slate-600">
+          La auditoría registra cada acción del sistema y es lo que más crece con los años. Puede
+          eliminar los eventos antiguos para mantener la base ligera: la numeración de documentos y
+          el inventario no se afectan. Los respaldos conservan la historia anterior.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="field w-64">
+            <label>Conservar los últimos (días)</label>
+            <input
+              value={auditDays}
+              onChange={(e) => setAuditDays(e.target.value)}
+              inputMode="numeric"
+            />
+          </div>
+          <button className="btn btn-secondary" onClick={reviewAudit} disabled={auditBusy}>
+            Revisar eventos antiguos
+          </button>
+          {auditPreview && (
+            <span className="pb-2 text-xs text-slate-500">
+              {auditPreview.candidates > 0
+                ? `${auditPreview.candidates} evento(s) anteriores a ${auditPreview.cutoff}`
+                : `Sin eventos anteriores a ${auditPreview.cutoff}`}
+              {auditPreview.oldest ? ` · el más antiguo: ${auditPreview.oldest.slice(0, 10)}` : ""}
+            </span>
+          )}
         </div>
       </div>
 
@@ -217,7 +315,8 @@ export function BackupPage() {
         <strong>Restauración:</strong> se valida la integridad del archivo, se guarda una copia de
         seguridad del estado actual (prefijo <code>-safety-</code>) y luego se reemplaza la base
         completa. Los datos posteriores al respaldo seleccionado se pierden. Los respaldos con
-        prefijo <code>-auto-</code> se generan solos al iniciar la aplicación.
+        prefijo <code>-auto-</code> se generan solos una vez al mes; los manuales, cuando usted los
+        crea.
       </div>
 
       {restoreTarget && (
@@ -234,6 +333,25 @@ export function BackupPage() {
             </button>
             <button className="btn btn-danger" onClick={restore}>
               Sí, restaurar
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {auditTarget && (
+        <Modal title="Limpiar auditoría" onClose={() => setAuditTarget(null)}>
+          <p className="mb-3 text-sm text-slate-600">
+            Se eliminarán <strong>{auditTarget.candidates}</strong> evento(s) de auditoría
+            anteriores a <strong className="font-mono">{auditTarget.cutoff}</strong>. Quedarán{" "}
+            {auditTarget.remaining}. Esta acción no se puede deshacer; los respaldos existentes
+            conservan la historia anterior.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button className="btn btn-secondary" onClick={() => setAuditTarget(null)}>
+              Cancelar
+            </button>
+            <button className="btn btn-danger" onClick={purgeAuditLogs} disabled={auditBusy}>
+              {auditBusy ? "Limpiando…" : "Sí, limpiar auditoría"}
             </button>
           </div>
         </Modal>

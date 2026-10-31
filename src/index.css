@@ -130,6 +130,80 @@ body {
   border: 1px dashed #cbd5e1;
 }
 
+/* Tablas de inventario — encabezado más sobrio y acciones compactas */
+.table-ny.inventory-table thead th {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+}
+.table-ny.inventory-table tbody tr {
+  transition: background-color 0.12s ease;
+}
+.table-ny.inventory-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--ny-border);
+  border-radius: 0.6rem;
+  background: var(--ny-surface);
+  box-shadow: 0 1px 2px rgb(7 27 29 / 0.04);
+}
+.row-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 0.45rem;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.row-action:hover {
+  background: #f1f5f9;
+  color: var(--ny-brand);
+}
+.row-action:focus-visible {
+  outline: 2px solid var(--ny-brand-accent);
+  outline-offset: 1px;
+}
+.row-action-adjust {
+  color: #b45309;
+}
+.row-action-adjust:hover {
+  background: #fef3c7;
+  color: #92400e;
+}
+.row-action-adjust::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 22%;
+  bottom: 22%;
+  width: 1px;
+  background: var(--ny-border);
+}
+.row-action-danger {
+  color: #b91c1c;
+}
+.row-action-danger:hover {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 /* Botones */
 .btn {
   display: inline-flex;

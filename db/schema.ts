@@ -57,11 +57,36 @@ export const rawMaterials = sqliteTable(
       .references(() => units.code),
     stockMicro: integer("stock_micro").notNull().default(0),
     minStockMicro: integer("min_stock_micro").notNull().default(0),
+    // true = se produce internamente (elaboración); no puede comprarse.
+    elaborated: integer("elaborated", { mode: "boolean" }).notNull().default(false),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
     createdAt: CREATED_AT(),
     updatedAt: text("updated_at"),
   },
   (t) => [uniqueIndex("raw_materials_name_uq").on(t.name)],
+);
+
+// ---------------------------------------------------------------------------
+// Otros insumos (consumibles no productivos: limpieza, ferretería, etc.)
+// Comparten el motor PEPS de stock_lots/inventory_movements con item_type='supply'.
+// ---------------------------------------------------------------------------
+export const supplies = sqliteTable(
+  "supplies",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    description: text("description"),
+    category: text("category"),
+    unitId: text("unit_id")
+      .notNull()
+      .references(() => units.code),
+    stockMicro: integer("stock_micro").notNull().default(0),
+    minStockMicro: integer("min_stock_micro").notNull().default(0),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: CREATED_AT(),
+    updatedAt: text("updated_at"),
+  },
+  (t) => [uniqueIndex("supplies_name_uq").on(t.name)],
 );
 
 // ---------------------------------------------------------------------------
@@ -131,7 +156,7 @@ export const stockLots = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     itemType: text("item_type").notNull(), // 'raw' | 'mass' | 'product'
     itemId: integer("item_id").notNull(),
-    refType: text("ref_type").notNull(), // 'purchase' | 'production' | 'transformation'
+    refType: text("ref_type").notNull(), // 'purchase' | 'production' | 'transformation' | 'elaboration'
     refId: integer("ref_id").notNull(),
     qtyInitialMicro: integer("qty_initial_micro").notNull(),
     qtyRemainingMicro: integer("qty_remaining_micro").notNull(),
@@ -208,9 +233,9 @@ export const purchaseItems = sqliteTable("purchase_items", {
   purchaseId: integer("purchase_id")
     .notNull()
     .references(() => purchases.id),
-  rawMaterialId: integer("raw_material_id")
-    .notNull()
-    .references(() => rawMaterials.id),
+  // Exactamente uno de los dos: materia prima (producción) u otro insumo.
+  rawMaterialId: integer("raw_material_id").references(() => rawMaterials.id),
+  supplyId: integer("supply_id").references(() => supplies.id),
   unitId: text("unit_id")
     .notNull()
     .references(() => units.code),
@@ -501,6 +526,97 @@ export const transformationMaterialConsumptions = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Elaboración de materias primas (materias primas derivadas)
+// Consume materias primas + mano de obra y produce UNA materia prima con
+// costo real (PEPS de los insumos + MO) en un lote 'raw' con refType propio.
+// ---------------------------------------------------------------------------
+export const rawElaborations = sqliteTable(
+  "raw_elaborations",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    number: integer("number").notNull(),
+    elaborationDate: text("elaboration_date").notNull(),
+    outputMaterialId: integer("output_material_id")
+      .notNull()
+      .references(() => rawMaterials.id),
+    outputQtyMicro: integer("output_qty_micro").notNull(), // unidad base del material
+    // Mano de obra de la elaboración (monto editable por operación).
+    laborCostMicro: integer("labor_cost_micro").notNull().default(0),
+    totalCostMicro: integer("total_cost_micro").notNull().default(0),
+    unitCostMicro: integer("unit_cost_micro").notNull().default(0),
+    status: text("status").notNull().default("confirmada"), // confirmada | anulada
+    notes: text("notes"),
+    clientToken: text("client_token"),
+    createdAt: CREATED_AT(),
+    cancelledAt: text("cancelled_at"),
+    cancelReason: text("cancel_reason"),
+  },
+  (t) => [
+    uniqueIndex("raw_elaborations_number_uq").on(t.number),
+    uniqueIndex("raw_elaborations_token_uq").on(t.clientToken),
+    index("raw_elaborations_date_idx").on(t.elaborationDate),
+  ],
+);
+
+// Consumo real por lote (costo PEPS congelado al confirmar).
+export const rawElaborationLines = sqliteTable(
+  "raw_elaboration_lines",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    elaborationId: integer("elaboration_id")
+      .notNull()
+      .references(() => rawElaborations.id),
+    rawMaterialId: integer("raw_material_id")
+      .notNull()
+      .references(() => rawMaterials.id),
+    lotId: integer("lot_id")
+      .notNull()
+      .references(() => stockLots.id),
+    qtyMicro: integer("qty_micro").notNull(), // micro-unidades unidad base
+    unitCostMicro: integer("unit_cost_micro").notNull(), // congelado
+    lineCostMicro: integer("line_cost_micro").notNull(),
+  },
+  (t) => [index("raw_elab_lines_elab_idx").on(t.elaborationId)],
+);
+
+// Plantilla de elaboración (una por material resultante, editable en el
+// momento): cantidades de insumo por 1 unidad producida + MO por lote
+// (sincronizada con la última elaboración confirmada = "última usada").
+export const elaborationTemplates = sqliteTable(
+  "elaboration_templates",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    outputMaterialId: integer("output_material_id")
+      .notNull()
+      .references(() => rawMaterials.id),
+    laborCostMicro: integer("labor_cost_micro").notNull().default(0),
+    createdAt: CREATED_AT(),
+    updatedAt: text("updated_at"),
+  },
+  (t) => [uniqueIndex("elaboration_templates_output_uq").on(t.outputMaterialId)],
+);
+
+export const elaborationTemplateLines = sqliteTable(
+  "elaboration_template_lines",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    templateId: integer("template_id")
+      .notNull()
+      .references(() => elaborationTemplates.id),
+    rawMaterialId: integer("raw_material_id")
+      .notNull()
+      .references(() => rawMaterials.id),
+    // Cantidad del insumo (unidad base del insumo) por 1 unidad completa
+    // del material resultante. Ej.: bolsa 25×45 → 4 nylon ⇒ 0.25 bolsa/nylon.
+    qtyPerUnitMicro: integer("qty_per_unit_micro").notNull(),
+  },
+  (t) => [
+    index("elab_tpl_lines_template_idx").on(t.templateId),
+    uniqueIndex("elab_tpl_lines_material_uq").on(t.templateId, t.rawMaterialId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Ventas
 // ---------------------------------------------------------------------------
 export const sales = sqliteTable(
@@ -658,6 +774,58 @@ export const laborRates = sqliteTable(
   (t) => [
     index("labor_rates_mass_idx").on(t.massId),
     index("labor_rates_product_idx").on(t.productId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Activos fijos tangibles (bienes con vida útil, depreciación lineal)
+// ---------------------------------------------------------------------------
+export const fixedAssets = sqliteTable(
+  "fixed_assets",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    code: text("code").notNull(), // AF-0001 (asignado al crear)
+    name: text("name").notNull(),
+    category: text("category"), // Equipo de cómputo | Mobiliario | Transporte | ...
+    acquiredAt: text("acquired_at").notNull(),
+    costMicro: integer("cost_micro").notNull(),
+    residualMicro: integer("residual_micro").notNull().default(0),
+    usefulLifeMonths: integer("useful_life_months").notNull(),
+    method: text("method").notNull().default("lineal"),
+    supplierId: integer("supplier_id").references(() => suppliers.id),
+    location: text("location"),
+    notes: text("notes"),
+    status: text("status").notNull().default("en_uso"), // en_uso | baja
+    disposedAt: text("disposed_at"),
+    disposeType: text("dispose_type"), // venta | danado | obsoleto | otro
+    recoveryValueMicro: integer("recovery_value_micro").notNull().default(0),
+    createdAt: CREATED_AT(),
+    updatedAt: text("updated_at"),
+  },
+  (t) => [
+    uniqueIndex("fixed_assets_code_uq").on(t.code),
+    index("fixed_assets_status_idx").on(t.status),
+    index("fixed_assets_category_idx").on(t.category),
+    index("fixed_assets_acquired_idx").on(t.acquiredAt),
+  ],
+);
+
+// Depreciación asentada por activo y periodo (YYYY-MM). Único: idempotencia.
+export const fixedAssetDepreciations = sqliteTable(
+  "fixed_asset_depreciations",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    assetId: integer("asset_id")
+      .notNull()
+      .references(() => fixedAssets.id),
+    period: text("period").notNull(), // YYYY-MM
+    amountMicro: integer("amount_micro").notNull(),
+    expenseId: integer("expense_id").references(() => expenses.id),
+    createdAt: CREATED_AT(),
+  },
+  (t) => [
+    uniqueIndex("fixed_asset_depreciations_asset_period_uq").on(t.assetId, t.period),
+    index("fixed_asset_depreciations_period_idx").on(t.period),
   ],
 );
 

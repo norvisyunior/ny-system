@@ -43,6 +43,7 @@ interface PurchaseDetail {
   createdAt: string;
   items: {
     id: number;
+    itemType: "raw" | "supply";
     materialName: string;
     materialUnit: string;
     unitId: string;
@@ -65,6 +66,14 @@ interface Material {
   unitId: string;
   dimension: string;
   active: boolean;
+  elaborated?: boolean;
+}
+interface Supply {
+  id: number;
+  name: string;
+  unitId: string;
+  dimension: string;
+  active: boolean;
 }
 interface Unit {
   code: string;
@@ -73,7 +82,7 @@ interface Unit {
 }
 
 interface ItemRow {
-  rawMaterialId: string;
+  itemKey: string;
   unitId: string;
   qty: string;
   price: string;
@@ -84,8 +93,14 @@ const EMPTY_FORM = () => ({
   purchaseDate: todayISO(),
   docNumber: "",
   notes: "",
-  items: [{ rawMaterialId: "", unitId: "", qty: "", price: "" }] as ItemRow[],
+  items: [{ itemKey: "", unitId: "", qty: "", price: "" }] as ItemRow[],
 });
+
+function parseItemKey(key: string): { kind: "raw" | "supply"; id: string } | null {
+  if (key.startsWith("raw:")) return { kind: "raw", id: key.slice(4) };
+  if (key.startsWith("supply:")) return { kind: "supply", id: key.slice(7) };
+  return null;
+}
 
 export function PurchasesPage() {
   // Día visible: por defecto hoy; se cambia con el filtro de fecha.
@@ -112,6 +127,7 @@ export function PurchasesPage() {
   const [form, setForm] = useState(EMPTY_FORM());
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [supplies, setSupplies] = useState<Supply[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [detail, setDetail] = useState<PurchaseDetail | null>(null);
   const [annulReason, setAnnulReason] = useState("");
@@ -123,13 +139,15 @@ export function PurchasesPage() {
 
   const loadFormDeps = async () => {
     try {
-      const [s, m, u] = await Promise.all([
+      const [s, m, p, u] = await Promise.all([
         api.get<Supplier[]>("/suppliers"),
         api.get<Material[]>("/materials?active=1"),
+        api.get<Supply[]>("/supplies?active=1"),
         api.get<Unit[]>("/units"),
       ]);
       setSuppliers(s.filter((x) => x.active));
       setMaterials(m.filter((x) => x.active));
+      setSupplies(p.filter((x) => x.active));
       setUnits(u);
       setSuppliersLoaded(true);
     } catch (e) {
@@ -153,19 +171,31 @@ export function PurchasesPage() {
     });
   };
 
-  const onMaterialChange = (idx: number, materialId: string) => {
-    const mat = materials.find((m) => String(m.id) === materialId);
+  const onItemChange = (idx: number, itemKey: string) => {
+    const ref = parseItemKey(itemKey);
+    const source = !ref
+      ? null
+      : ref.kind === "raw"
+        ? materials.find((m) => String(m.id) === ref.id)
+        : supplies.find((s) => String(s.id) === ref.id);
     setItem(idx, {
-      rawMaterialId: materialId,
-      unitId: mat ? mat.unitId : "",
+      itemKey,
+      unitId: source ? source.unitId : "",
     });
   };
 
+  const itemSource = (it: ItemRow): { unitId: string; dimension: string } | null => {
+    const ref = parseItemKey(it.itemKey);
+    if (!ref) return null;
+    if (ref.kind === "raw") return materials.find((m) => String(m.id) === ref.id) ?? null;
+    return supplies.find((s) => String(s.id) === ref.id) ?? null;
+  };
+
   const unitOptions = (it: ItemRow): Unit[] => {
-    const mat = materials.find((m) => String(m.id) === it.rawMaterialId);
-    if (!mat) return [];
-    if (mat.dimension === "conteo") return units.filter((u) => u.code === mat.unitId);
-    return units.filter((u) => u.dimension === mat.dimension);
+    const source = itemSource(it);
+    if (!source) return [];
+    if (source.dimension === "conteo") return units.filter((u) => u.code === source.unitId);
+    return units.filter((u) => u.dimension === source.dimension);
   };
 
   const lineTotal = (it: ItemRow): number => {
@@ -206,14 +236,20 @@ export function PurchasesPage() {
     setError(null);
     try {
       const items = form.items
-        .filter((it) => it.rawMaterialId && it.qty)
-        .map((it) => ({
-          rawMaterialId: Number(it.rawMaterialId),
-          unitId: it.unitId,
-          qty: it.qty,
-          unitPrice: it.price || "0",
-        }));
-      if (items.length === 0) throw new ApiError("Agregue al menos un material a la compra.", 400);
+        .filter((it) => it.itemKey && it.qty)
+        .map((it) => {
+          const ref = parseItemKey(it.itemKey);
+          if (!ref) throw new ApiError("Seleccione una materia prima o un insumo en cada línea.", 400);
+          return {
+            ...(ref.kind === "raw"
+              ? { rawMaterialId: Number(ref.id) }
+              : { supplyId: Number(ref.id) }),
+            unitId: it.unitId,
+            qty: it.qty,
+            unitPrice: it.price || "0",
+          };
+        });
+      if (items.length === 0) throw new ApiError("Agregue al menos una materia prima o insumo a la compra.", 400);
       await api.post("/purchases", {
         supplierId: Number(form.supplierId),
         purchaseDate: form.purchaseDate,
@@ -255,7 +291,7 @@ export function PurchasesPage() {
     <div>
       <PageHeader
         title="Compras"
-        subtitle="Recepción de materias primas con precio real congelado (PEPS)"
+        subtitle="Recepción de materias primas e insumos con precio real congelado (PEPS)"
         actions={
           view === "list" ? (
             <button className="btn btn-primary" onClick={openForm}>
@@ -402,13 +438,13 @@ export function PurchasesPage() {
           </div>
 
           <div className="mt-5 mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-700">Materiales</h3>
+            <h3 className="text-sm font-bold text-slate-700">Materiales e insumos</h3>
             <button
               className="btn btn-secondary"
               onClick={() =>
                 setForm((f) => ({
                   ...f,
-                  items: [...f.items, { rawMaterialId: "", unitId: "", qty: "", price: "" }],
+                  items: [...f.items, { itemKey: "", unitId: "", qty: "", price: "" }],
                 }))
               }
             >
@@ -477,7 +513,7 @@ export function PurchasesPage() {
           <table className="table-ny">
             <thead>
               <tr>
-                <th style={{ width: "32%" }}>Materia prima</th>
+                <th style={{ width: "32%" }}>Materia prima / insumo</th>
                 <th style={{ width: "14%" }}>Cantidad</th>
                 <th style={{ width: "14%" }}>Unidad</th>
                 <th style={{ width: "18%" }}>Precio unitario</th>
@@ -491,15 +527,27 @@ export function PurchasesPage() {
                   <td>
                     <select
                       className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                      value={it.rawMaterialId}
-                      onChange={(e) => onMaterialChange(idx, e.target.value)}
+                      value={it.itemKey}
+                      onChange={(e) => onItemChange(idx, e.target.value)}
                     >
                       <option value="">Seleccione…</option>
-                      {materials.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
+                      <optgroup label="Materias primas">
+                        {materials.map((m) => (
+                          <option key={`raw-${m.id}`} value={`raw:${m.id}`}>
+                            {m.name}
+                            {m.elaborated
+                              ? ` (elaborada · compra directa o propia elaboración)`
+                              : ""}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Otros insumos">
+                        {supplies.map((s) => (
+                          <option key={`supply-${s.id}`} value={`supply:${s.id}`}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </optgroup>
                     </select>
                   </td>
                   <td>
@@ -607,7 +655,7 @@ export function PurchasesPage() {
           <table className="table-ny">
             <thead>
               <tr>
-                <th>Material</th>
+                <th>Material / insumo</th>
                 <th className="num">Cantidad</th>
                 <th className="num">Precio unit.</th>
                 <th className="num">Importe</th>
@@ -616,7 +664,14 @@ export function PurchasesPage() {
             <tbody>
               {detail.items.map((it) => (
                 <tr key={it.id}>
-                  <td>{it.materialName}</td>
+                  <td>
+                    {it.materialName}
+                    {it.itemType === "supply" && (
+                      <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
+                        Insumo
+                      </span>
+                    )}
+                  </td>
                   <td className="num">{fmtQty(it.qtyMicro, it.unitId)}</td>
                   <td className="num">
                     {fmtMoney(it.unitPriceMicro)}/{it.unitId}

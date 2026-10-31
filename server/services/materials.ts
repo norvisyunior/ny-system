@@ -29,6 +29,8 @@ export const materialInput = z.object({
   category: z.string().trim().max(80).optional().nullable(),
   unitId: z.string().trim().min(1, "La unidad de medida es obligatoria."),
   minStock: qtyDec.optional(),
+  // true = se elabora internamente: no puede comprarse.
+  elaborated: z.boolean().optional(),
   active: z.boolean().optional(),
 });
 export type MaterialInput = z.infer<typeof materialInput>;
@@ -42,8 +44,13 @@ export interface MaterialListItem {
   dimension: string;
   stockMicro: number;
   minStockMicro: number;
+  elaborated: boolean;
   active: boolean;
   stockValueMicro: number;
+  lastCost: {
+    costMicro: number;
+    date: string;
+  } | null;
   lastPrice: {
     priceMicro: number;
     unitId: string;
@@ -133,11 +140,36 @@ export function listMaterials(
       .filter((r) => r.rn === 1);
 
     const lastByMaterial = new Map<number, (typeof lastPrices)[number]>();
-    for (const p of lastPrices) lastByMaterial.set(p.materialId, p);
+    for (const p of lastPrices) {
+      if (p.materialId != null) lastByMaterial.set(p.materialId, p);
+    }
+
+    // Último costo de lote (cualquier origen: compra, producción, elaboración):
+    // respaldo para valorar materias primas elaboradas sin compras.
+    const lastLots = db
+      .select({
+        materialId: stockLots.itemId,
+        costMicro: stockLots.unitCostMicro,
+        date: stockLots.businessDate,
+        rn: sql<number>`ROW_NUMBER() OVER (PARTITION BY ${stockLots.itemId} ORDER BY ${stockLots.businessDate} DESC, ${stockLots.id} DESC)`,
+      })
+      .from(stockLots)
+      .where(
+        and(
+          eq(stockLots.itemType, "raw"),
+          isNull(stockLots.cancelledAt),
+          inArray(stockLots.itemId, ids),
+        ),
+      )
+      .all()
+      .filter((r) => r.rn === 1);
+    const lastCostByMaterial = new Map<number, (typeof lastLots)[number]>();
+    for (const l of lastLots) lastCostByMaterial.set(l.materialId, l);
 
     const result: MaterialListItem[] = pageRows.map((r) => {
       const m = r.raw_materials;
       const lp = lastByMaterial.get(m.id);
+      const lc = lastCostByMaterial.get(m.id);
       const unitLabel = r.units?.label ?? m.unitId;
       const lastPrice = lp
         ? {
@@ -157,8 +189,10 @@ export function listMaterials(
         dimension: r.units?.dimension ?? "",
         stockMicro: m.stockMicro,
         minStockMicro: m.minStockMicro,
+        elaborated: m.elaborated,
         active: m.active,
         stockValueMicro: valueByMaterial.get(m.id) ?? 0,
+        lastCost: lc ? { costMicro: lc.costMicro, date: lc.date } : null,
         lastPrice,
       };
     });
@@ -206,14 +240,30 @@ export function getMaterialDetail(db: DB, id: number) {
     .innerJoin(purchases, eq(purchases.id, purchaseItems.purchaseId))
     .where(and(eq(purchaseItems.rawMaterialId, id), eq(purchases.status, "confirmada")))
     .orderBy(desc(purchases.purchaseDate), desc(purchases.id))
+    .limit(5)
     .all();
+
+  const priceHistoryTotal =
+    db
+      .select({ total: sql<number>`COUNT(*)` })
+      .from(purchaseItems)
+      .innerJoin(purchases, eq(purchases.id, purchaseItems.purchaseId))
+      .where(and(eq(purchaseItems.rawMaterialId, id), eq(purchases.status, "confirmada")))
+      .get()?.total ?? 0;
 
   const stockValueMicro = lots.reduce(
     (acc, l) => acc + mulQtyPrice(l.qtyRemainingMicro, l.unitCostMicro),
     0,
   );
 
-  return { material, lots, priceHistory, stockValueMicro };
+  return {
+    material,
+    lots: lots.slice(0, 5),
+    lotsTotal: lots.length,
+    priceHistory,
+    priceHistoryTotal,
+    stockValueMicro,
+  };
 }
 
 export function createMaterial(db: DB, input: MaterialInput) {
@@ -236,6 +286,7 @@ export function createMaterial(db: DB, input: MaterialInput) {
         category: input.category ?? null,
         unitId: input.unitId,
         minStockMicro: input.minStock ?? 0,
+        elaborated: input.elaborated ?? false,
         active: input.active ?? true,
       })
       .returning()
@@ -279,6 +330,7 @@ export function updateMaterial(db: DB, id: number, input: MaterialInput) {
         category: input.category ?? null,
         unitId: input.unitId,
         minStockMicro: input.minStock ?? existing.minStockMicro,
+        elaborated: input.elaborated ?? existing.elaborated,
         active: input.active ?? existing.active,
         updatedAt: new Date().toISOString(),
       })

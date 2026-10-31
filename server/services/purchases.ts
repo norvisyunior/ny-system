@@ -2,6 +2,7 @@ import {
   purchases,
   purchaseItems,
   rawMaterials,
+  supplies,
   suppliers,
   units,
   inventoryMovements,
@@ -20,12 +21,17 @@ import type { ListPaging, PageResult } from "../domain/paging";
 import type { DB } from "../domain/types";
 import type { UnitsCatalog } from "../domain/units";
 
-export const purchaseLineInput = z.object({
-  rawMaterialId: z.number().int().positive("Materia prima requerida."),
-  unitId: z.string().min(1, "Unidad requerida."),
-  qty: decMicro({ minExclusive: true }),
-  unitPrice: decMicro(),
-});
+export const purchaseLineInput = z
+  .object({
+    rawMaterialId: z.number().int().positive().optional(),
+    supplyId: z.number().int().positive().optional(),
+    unitId: z.string().min(1, "Unidad requerida."),
+    qty: decMicro({ minExclusive: true }),
+    unitPrice: decMicro(),
+  })
+  .refine((v) => (v.rawMaterialId != null ? 1 : 0) + (v.supplyId != null ? 1 : 0) === 1, {
+    message: "Cada línea debe ser una materia prima o un insumo (exactamente uno).",
+  });
 export type PurchaseLineInput = z.infer<typeof purchaseLineInput>;
 
 export const purchaseInput = z.object({
@@ -33,7 +39,7 @@ export const purchaseInput = z.object({
   purchaseDate: z.string().min(1, "Fecha requerida."),
   docNumber: z.string().trim().max(50).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
-  items: z.array(purchaseLineInput).min(1, "Agregue al menos un material."),
+    items: z.array(purchaseLineInput).min(1, "Agregue al menos un material o insumo."),
 });
 export type PurchaseInput = z.infer<typeof purchaseInput>;
 
@@ -47,8 +53,9 @@ export function createPurchase(db: DB, catalog: UnitsCatalog, input: PurchaseInp
     if (!supplier.active) throw domainError(`El proveedor "${supplier.name}" está inactivo.`);
 
     interface Line {
-      materialId: number;
-      materialName: string;
+      itemType: "raw" | "supply";
+      itemId: number;
+      itemName: string;
       unitId: string;
       baseUnitId: string;
       qtyMicro: number;
@@ -61,35 +68,42 @@ export function createPurchase(db: DB, catalog: UnitsCatalog, input: PurchaseInp
     let totalMicro = 0;
 
     for (const it of input.items) {
-      const mat = tx
-        .select()
-        .from(rawMaterials)
-        .where(eq(rawMaterials.id, it.rawMaterialId))
-        .get();
-      if (!mat) throw notFoundError("Materia prima");
-      if (!mat.active) {
-        throw domainError(`La materia prima "${mat.name}" está inactiva y no puede comprarse.`);
+      const isSupply = it.supplyId != null;
+      const item = isSupply
+        ? tx.select().from(supplies).where(eq(supplies.id, it.supplyId as number)).get()
+        : tx.select().from(rawMaterials).where(eq(rawMaterials.id, it.rawMaterialId as number)).get();
+      if (!item) throw notFoundError(isSupply ? "Insumo" : "Materia prima");
+      if (!item.active) {
+        throw domainError(
+          isSupply
+            ? `El insumo "${item.name}" está inactivo y no puede comprarse.`
+            : `La materia prima "${item.name}" está inactiva y no puede comprarse.`,
+        );
       }
-      catalog.assertCompatible(it.unitId, mat.unitId);
-      const qtyBaseMicro = catalog.toBase(it.qty, it.unitId, mat.unitId);
+      // Las materia primas "elaboradas" también pueden comprarse: cada lote
+      // lleva su costo real (compra o elaboración) y el consumo saca el lote
+      // FIFO que corresponda.
+      catalog.assertCompatible(it.unitId, item.unitId);
+      const qtyBaseMicro = catalog.toBase(it.qty, it.unitId, item.unitId);
       if (qtyBaseMicro <= 0) {
         throw domainError(
-          `La cantidad de "${mat.name}" es demasiado pequeña para su unidad base (${mat.unitId}).`,
+          `La cantidad de "${item.name}" es demasiado pequeña para su unidad base (${item.unitId}).`,
         );
       }
       const lineTotalMicro = mulQtyPrice(it.qty, it.unitPrice);
-      // costo real por 1 unidad COMPLETA de la unidad base del material
+      // costo real por 1 unidad COMPLETA de la unidad base del ítem
       const fU = catalog.get(it.unitId).factor;
-      const fB = catalog.get(mat.unitId).factor;
+      const fB = catalog.get(item.unitId).factor;
       const unitCostPerBaseMicro = Number(
         divRoundAway(BigInt(it.unitPrice) * BigInt(fB), BigInt(fU)),
       );
 
       lines.push({
-        materialId: mat.id,
-        materialName: mat.name,
+        itemType: isSupply ? "supply" : "raw",
+        itemId: item.id,
+        itemName: item.name,
         unitId: it.unitId,
-        baseUnitId: mat.unitId,
+        baseUnitId: item.unitId,
         qtyMicro: it.qty,
         qtyBaseMicro,
         unitPriceMicro: it.unitPrice,
@@ -119,7 +133,8 @@ export function createPurchase(db: DB, catalog: UnitsCatalog, input: PurchaseInp
         .insert(purchaseItems)
         .values({
           purchaseId: purchase.id,
-          rawMaterialId: line.materialId,
+          rawMaterialId: line.itemType === "raw" ? line.itemId : null,
+          supplyId: line.itemType === "supply" ? line.itemId : null,
           unitId: line.unitId,
           qtyMicro: line.qtyMicro,
           qtyBaseMicro: line.qtyBaseMicro,
@@ -130,8 +145,8 @@ export function createPurchase(db: DB, catalog: UnitsCatalog, input: PurchaseInp
         .all();
 
       const lotId = createLot(tx, {
-        itemType: "raw",
-        itemId: line.materialId,
+        itemType: line.itemType,
+        itemId: line.itemId,
         refType: "purchase",
         refId: purchase.id,
         qtyMicro: line.qtyBaseMicro,
@@ -142,8 +157,8 @@ export function createPurchase(db: DB, catalog: UnitsCatalog, input: PurchaseInp
       tx.insert(inventoryMovements)
         .values({
           businessDate: input.purchaseDate,
-          itemType: "raw",
-          itemId: line.materialId,
+          itemType: line.itemType,
+          itemId: line.itemId,
           movementType: "purchase",
           qtyDeltaMicro: line.qtyBaseMicro,
           unitCostMicro: line.unitCostPerBaseMicro,
@@ -155,10 +170,23 @@ export function createPurchase(db: DB, catalog: UnitsCatalog, input: PurchaseInp
         })
         .run();
 
-      tx.update(rawMaterials)
-        .set({ stockMicro: sql`${rawMaterials.stockMicro} + ${line.qtyBaseMicro}`, updatedAt: nowISO() })
-        .where(eq(rawMaterials.id, line.materialId))
-        .run();
+      if (line.itemType === "raw") {
+        tx.update(rawMaterials)
+          .set({
+            stockMicro: sql`${rawMaterials.stockMicro} + ${line.qtyBaseMicro}`,
+            updatedAt: nowISO(),
+          })
+          .where(eq(rawMaterials.id, line.itemId))
+          .run();
+      } else {
+        tx.update(supplies)
+          .set({
+            stockMicro: sql`${supplies.stockMicro} + ${line.qtyBaseMicro}`,
+            updatedAt: nowISO(),
+          })
+          .where(eq(supplies.id, line.itemId))
+          .run();
+      }
 
       void item;
     }
@@ -269,12 +297,15 @@ export function getPurchaseDetail(db: DB, id: number) {
     .get();
   if (!purchase) throw notFoundError("Compra");
 
-  const items = db
+  const itemRows = db
     .select({
       id: purchaseItems.id,
       rawMaterialId: purchaseItems.rawMaterialId,
-      materialName: rawMaterials.name,
-      materialUnit: rawMaterials.unitId,
+      supplyId: purchaseItems.supplyId,
+      rawMaterialName: rawMaterials.name,
+      supplyName: supplies.name,
+      rawMaterialUnit: rawMaterials.unitId,
+      supplyUnit: supplies.unitId,
       unitId: purchaseItems.unitId,
       unitLabel: units.label,
       qtyMicro: purchaseItems.qtyMicro,
@@ -283,11 +314,30 @@ export function getPurchaseDetail(db: DB, id: number) {
       lineTotalMicro: purchaseItems.lineTotalMicro,
     })
     .from(purchaseItems)
-    .innerJoin(rawMaterials, eq(rawMaterials.id, purchaseItems.rawMaterialId))
+    .leftJoin(rawMaterials, eq(rawMaterials.id, purchaseItems.rawMaterialId))
+    .leftJoin(supplies, eq(supplies.id, purchaseItems.supplyId))
     .innerJoin(units, eq(units.code, purchaseItems.unitId))
     .where(eq(purchaseItems.purchaseId, id))
     .orderBy(asc(purchaseItems.id))
     .all();
+
+  const items = itemRows.map((r) => {
+    const isSupply = r.supplyId != null;
+    return {
+      id: r.id,
+      itemType: isSupply ? ("supply" as const) : ("raw" as const),
+      rawMaterialId: r.rawMaterialId,
+      supplyId: r.supplyId,
+      materialName: (isSupply ? r.supplyName : r.rawMaterialName) ?? "(eliminado)",
+      materialUnit: (isSupply ? r.supplyUnit : r.rawMaterialUnit) ?? "",
+      unitId: r.unitId,
+      unitLabel: r.unitLabel,
+      qtyMicro: r.qtyMicro,
+      qtyBaseMicro: r.qtyBaseMicro,
+      unitPriceMicro: r.unitPriceMicro,
+      lineTotalMicro: r.lineTotalMicro,
+    };
+  });
 
   return { ...purchase, items };
 }
@@ -312,26 +362,26 @@ export function annulPurchase(db: DB, id: number, reason: string) {
     const lots = tx
       .select()
       .from(stockLots)
-      .where(and(eq(stockLots.itemType, "raw"), eq(stockLots.refType, "purchase"), eq(stockLots.refId, id)))
+      .where(and(eq(stockLots.refType, "purchase"), eq(stockLots.refId, id)))
       .all();
 
     for (const lot of lots) {
       if (lot.qtyRemainingMicro < lot.qtyInitialMicro) {
-        const mat = tx.select().from(rawMaterials).where(eq(rawMaterials.id, lot.itemId)).get();
+        const isSupply = lot.itemType === "supply";
+        const item = isSupply
+          ? tx.select().from(supplies).where(eq(supplies.id, lot.itemId)).get()
+          : tx.select().from(rawMaterials).where(eq(rawMaterials.id, lot.itemId)).get();
         throw domainError(
-          `No se puede anular: el material "${mat?.name ?? lot.itemId}" de esta compra ya fue consumido parcialmente en producciones. ` +
+          `No se puede anular: ${isSupply ? "el insumo" : "el material"} "${item?.name ?? lot.itemId}" de esta compra ya fue consumido parcialmente. ` +
             `Contacte al administrador para un ajuste con trazabilidad.`,
         );
       }
     }
 
     const now = nowISO();
-    const totalsByMaterial = new Map<number, number>();
+    const itemsKey = new Set<string>();
     for (const lot of lots) {
-      totalsByMaterial.set(
-        lot.itemId,
-        (totalsByMaterial.get(lot.itemId) ?? 0) + lot.qtyRemainingMicro,
-      );
+      itemsKey.add(`${lot.itemType}:${lot.itemId}`);
       tx.update(stockLots)
         .set({ cancelledAt: now })
         .where(eq(stockLots.id, lot.id))
@@ -340,7 +390,7 @@ export function annulPurchase(db: DB, id: number, reason: string) {
       tx.insert(inventoryMovements)
         .values({
           businessDate: purchase.purchaseDate,
-          itemType: "raw",
+          itemType: lot.itemType,
           itemId: lot.itemId,
           movementType: "cancel_purchase",
           qtyDeltaMicro: -lot.qtyRemainingMicro,
@@ -354,13 +404,23 @@ export function annulPurchase(db: DB, id: number, reason: string) {
         })
         .run();
 
-      tx.update(rawMaterials)
-        .set({
-          stockMicro: sql`${rawMaterials.stockMicro} - ${lot.qtyRemainingMicro}`,
-          updatedAt: now,
-        })
-        .where(eq(rawMaterials.id, lot.itemId))
-        .run();
+      if (lot.itemType === "supply") {
+        tx.update(supplies)
+          .set({
+            stockMicro: sql`${supplies.stockMicro} - ${lot.qtyRemainingMicro}`,
+            updatedAt: now,
+          })
+          .where(eq(supplies.id, lot.itemId))
+          .run();
+      } else {
+        tx.update(rawMaterials)
+          .set({
+            stockMicro: sql`${rawMaterials.stockMicro} - ${lot.qtyRemainingMicro}`,
+            updatedAt: now,
+          })
+          .where(eq(rawMaterials.id, lot.itemId))
+          .run();
+      }
     }
 
     tx.update(purchases)
@@ -373,7 +433,7 @@ export function annulPurchase(db: DB, id: number, reason: string) {
       entityType: "purchase",
       entityId: id,
       summary: `Compra #${String(purchase.number).padStart(5, "0")} anulada`,
-      details: { reason, totalMicro: purchase.totalMicro, materials: totalsByMaterial.size },
+      details: { reason, totalMicro: purchase.totalMicro, items: itemsKey.size },
     });
 
     return { id, status: "anulada" as const };

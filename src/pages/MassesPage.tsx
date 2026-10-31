@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { Eye, Pencil, SlidersHorizontal } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
+import { RowAction, RowActions } from "../components/RowActions";
 import { StockAdjustModal, type StockAdjustTarget } from "../components/StockAdjustModal";
 import {
   Badge,
@@ -46,6 +48,7 @@ interface MassMovement {
 interface MassDetail {
   mass: MassRow;
   lots: MassLot[];
+  lotsTotal: number;
   movements: MassMovement[];
   stockValueMicro: number;
 }
@@ -149,7 +152,7 @@ export function MassesPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <table className="table-ny">
+        <table className="table-ny inventory-table">
           <thead>
             <tr>
               <th>Nombre</th>
@@ -158,7 +161,9 @@ export function MassesPage() {
               <th className="center">Mínimo</th>
               <th className="num">Valor FIFO</th>
               <th className="center">Estado</th>
-              <th></th>
+              <th className="w-28 text-right">
+                <span className="sr-only">Acciones</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -189,27 +194,24 @@ export function MassesPage() {
                     {m.active ? <Badge tone="green">Activa</Badge> : <Badge tone="red">Inactiva</Badge>}
                   </td>
                   <td className="text-right">
-                    <button className="btn btn-secondary mr-2" onClick={() => openDetail(m.id)}>
-                      Ver
-                    </button>
-                    <button className="btn btn-secondary mr-2" onClick={() => openEdit(m)}>
-                      Editar
-                    </button>
-                    <button
-                      className="btn btn-secondary"
-                      title="Ajustar stock exacto o registrar merma"
-                      onClick={() =>
-                        setAdjustTarget({
-                          itemType: "mass",
-                          itemId: m.id,
-                          name: m.name,
-                          unitId: m.unitId,
-                          stockMicro: m.stockMicro,
-                        })
-                      }
-                    >
-                      Ajustar / Merma
-                    </button>
+                    <RowActions>
+                      <RowAction icon={Eye} label="Ver detalle" onClick={() => openDetail(m.id)} />
+                      <RowAction icon={Pencil} label="Editar" onClick={() => openEdit(m)} />
+                      <RowAction
+                        icon={SlidersHorizontal}
+                        label="Ajustar stock o registrar merma"
+                        tone="adjust"
+                        onClick={() =>
+                          setAdjustTarget({
+                            itemType: "mass",
+                            itemId: m.id,
+                            name: m.name,
+                            unitId: m.unitId,
+                            stockMicro: m.stockMicro,
+                          })
+                        }
+                      />
+                    </RowActions>
                   </td>
                 </tr>
               );
@@ -363,6 +365,12 @@ export function MassesPage() {
               ))}
             </tbody>
           </table>
+          {detail.lotsTotal > detail.lots.length && (
+            <p className="-mt-4 mb-5 text-xs text-slate-500">
+              Mostrando los {detail.lots.length} lotes más antiguos de {detail.lotsTotal} pendientes; los
+              demás se consumirán después.
+            </p>
+          )}
 
           <h3 className="mb-2 text-sm font-bold text-slate-700">Movimientos recientes</h3>
           <table className="table-ny">
@@ -397,6 +405,12 @@ export function MassesPage() {
               ))}
             </tbody>
           </table>
+          {detail.movements.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              Mostrando los últimos {detail.movements.length} movimientos; el historial completo está en
+              Reportes → Auditoría.
+            </p>
+          )}
 
           <div className="mt-4 flex justify-end">
             <button

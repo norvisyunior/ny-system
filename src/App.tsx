@@ -3,12 +3,14 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { SuppliersPage } from "./pages/SuppliersPage";
 import { MaterialsPage } from "./pages/MaterialsPage";
+import { ElaborationsPage } from "./pages/ElaborationsPage";
+import { SuppliesPage } from "./pages/SuppliesPage";
+import { AssetsPage } from "./pages/AssetsPage";
 import { PurchasesPage } from "./pages/PurchasesPage";
 import { UnitsPage } from "./pages/UnitsPage";
 import { MassesPage } from "./pages/MassesPage";
 import { RecipesPage } from "./pages/RecipesPage";
 import { CostSheetsPage } from "./pages/CostSheetsPage";
-import { PlanningPage } from "./pages/PlanningPage";
 import { ProductionsPage } from "./pages/ProductionsPage";
 import { YieldsPage } from "./pages/YieldsPage";
 import { ProductsPage } from "./pages/ProductsPage";
@@ -40,18 +42,20 @@ export default function App() {
           <Route path="/operaciones/cierre" element={<ClosingsPage />} />
 
           <Route path="/inventario/materias-primas" element={<MaterialsPage />} />
+          <Route path="/inventario/elaboraciones" element={<ElaborationsPage />} />
           <Route path="/inventario/masas" element={<MassesPage />} />
           <Route path="/inventario/productos" element={<ProductsPage />} />
+          <Route path="/inventario/insumos" element={<SuppliesPage />} />
 
           <Route path="/produccion/recetas" element={<RecipesPage />} />
           <Route path="/produccion/fichas-costo" element={<CostSheetsPage />} />
-          <Route path="/produccion/planes" element={<PlanningPage />} />
           <Route path="/produccion/producciones" element={<ProductionsPage />} />
           <Route path="/produccion/rendimientos" element={<YieldsPage />} />
 
           <Route path="/finanzas/ingresos" element={<IngresosPage />} />
           <Route path="/finanzas/costos" element={<CostosPage />} />
           <Route path="/finanzas/gastos" element={<ExpensesPage />} />
+          <Route path="/finanzas/activos" element={<AssetsPage />} />
           <Route path="/finanzas/rentabilidad" element={<ProfitabilityPage />} />
 
           <Route path="/reportes" element={<ReportsPage />} />

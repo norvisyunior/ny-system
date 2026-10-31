@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { Eye, Pencil, SlidersHorizontal } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
+import { RowAction, RowActions } from "../components/RowActions";
 import { StockAdjustModal, type StockAdjustTarget } from "../components/StockAdjustModal";
 import {
   Badge,
@@ -48,12 +50,14 @@ interface ProductDetail {
     valueMicro: number;
     notes: string | null;
   }[];
+  lotsTotal: number;
   priceHistory: {
     id: number;
     priceMicro: number;
     validFrom: string;
     reason: string | null;
   }[];
+  priceHistoryTotal: number;
   stockValueMicro: number;
 }
 
@@ -181,7 +185,7 @@ export function ProductsPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <table className="table-ny">
+        <table className="table-ny inventory-table">
           <thead>
             <tr>
               <th>Nombre</th>
@@ -190,7 +194,9 @@ export function ProductsPage() {
               <th className="center">Stock</th>
               <th className="num">Valor FIFO</th>
               <th className="center">Estado</th>
-              <th></th>
+              <th className="w-28 text-right">
+                <span className="sr-only">Acciones</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -219,27 +225,24 @@ export function ProductsPage() {
                     {p.active ? <Badge tone="green">Activo</Badge> : <Badge tone="red">Inactivo</Badge>}
                   </td>
                   <td className="text-right">
-                    <button className="btn btn-secondary mr-2" onClick={() => openDetail(p.id)}>
-                      Ver
-                    </button>
-                    <button className="btn btn-secondary mr-2" onClick={() => openEdit(p)}>
-                      Editar
-                    </button>
-                    <button
-                      className="btn btn-secondary"
-                      title="Ajustar stock exacto o registrar merma"
-                      onClick={() =>
-                        setAdjustTarget({
-                          itemType: "product",
-                          itemId: p.id,
-                          name: p.name,
-                          unitId: p.saleUnitId,
-                          stockMicro: p.stockMicro,
-                        })
-                      }
-                    >
-                      Ajustar / Merma
-                    </button>
+                    <RowActions>
+                      <RowAction icon={Eye} label="Ver detalle" onClick={() => openDetail(p.id)} />
+                      <RowAction icon={Pencil} label="Editar" onClick={() => openEdit(p)} />
+                      <RowAction
+                        icon={SlidersHorizontal}
+                        label="Ajustar stock o registrar merma"
+                        tone="adjust"
+                        onClick={() =>
+                          setAdjustTarget({
+                            itemType: "product",
+                            itemId: p.id,
+                            name: p.name,
+                            unitId: p.saleUnitId,
+                            stockMicro: p.stockMicro,
+                          })
+                        }
+                      />
+                    </RowActions>
                   </td>
                 </tr>
               );
@@ -445,6 +448,11 @@ export function ProductsPage() {
               ))}
             </tbody>
           </table>
+          {detail.priceHistoryTotal > detail.priceHistory.length && (
+            <p className="-mt-4 mb-5 text-xs text-slate-500">
+              Mostrando los {detail.priceHistory.length} precios más recientes de {detail.priceHistoryTotal}.
+            </p>
+          )}
 
           <h3 className="mb-2 text-sm font-bold text-slate-700">Lotes (PEPS)</h3>
           <table className="table-ny mb-5">
@@ -476,6 +484,12 @@ export function ProductsPage() {
               ))}
             </tbody>
           </table>
+          {detail.lotsTotal > detail.lots.length && (
+            <p className="-mt-4 mb-5 text-xs text-slate-500">
+              Mostrando los {detail.lots.length} lotes más antiguos de {detail.lotsTotal} pendientes; los
+              demás se consumirán después.
+            </p>
+          )}
 
           <h3 className="mb-2 text-sm font-bold text-slate-700">Movimientos recientes</h3>
           <table className="table-ny">
@@ -510,6 +524,12 @@ export function ProductsPage() {
               ))}
             </tbody>
           </table>
+          {detail.movements.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              Mostrando los últimos {detail.movements.length} movimientos; el historial completo está en
+              Reportes → Auditoría.
+            </p>
+          )}
 
           <div className="mt-4 flex justify-end">
             <button

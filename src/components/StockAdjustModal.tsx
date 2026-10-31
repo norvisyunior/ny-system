@@ -5,11 +5,11 @@ import { microToDecimalTrim } from "@shared/money";
 
 /**
  * Ajuste de stock (a cantidad exacta) o registro de merma para cualquier ítem
- * del inventario (materia prima, masa o producto terminado).
+ * del inventario (materia prima, masa, producto terminado u otro insumo).
  * Escribe por lotes PEPS en el server: POST /inventory/adjustments.
  */
 export interface StockAdjustTarget {
-  itemType: "raw" | "mass" | "product";
+  itemType: "raw" | "mass" | "product" | "supply";
   itemId: number;
   name: string;
   unitId: string;
@@ -44,7 +44,13 @@ export function StockAdjustModal({
 
   const current = microToDecimalTrim(target.stockMicro, 3);
   const nombreTipo =
-    target.itemType === "raw" ? "Materia prima" : target.itemType === "mass" ? "Masa" : "Producto terminado";
+    target.itemType === "raw"
+      ? "Materia prima"
+      : target.itemType === "mass"
+        ? "Masa"
+        : target.itemType === "supply"
+          ? "Otro insumo"
+          : "Producto terminado";
 
   const save = async () => {
     setSaving(true);
@@ -114,8 +120,8 @@ export function StockAdjustModal({
           </div>
           <span className="mt-1 block text-[11px] text-slate-500">
             {mode === "merma"
-              ? "Descuenta del inventario PEPS la cantidad perdida y la deja trazada."
-              : "Fija el stock total exacto: si sube, crea un lote con costo 0; si baja, consume lotes y el valor queda registrado como pérdida."}
+              ? "Descuenta del inventario PEPS la cantidad perdida y crea un gasto automático (categoría «Merma») por su valor; aparecerá en Gastos y afectará el cierre del día."
+              : "Fija el stock total exacto: si sube, crea un lote con costo 0; si baja, consume lotes y la pérdida queda trazada (no genera gasto)."}
           </span>
         </div>
 

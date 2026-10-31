@@ -312,7 +312,7 @@ export type FlowStepId =
   | "catalogos"
   | "compras"
   | "recetas"
-  | "planes"
+  | "ficha-costo"
   | "elaboracion"
   | "terminacion"
   | "ventas"
@@ -323,7 +323,7 @@ const FLOW_STEPS: { id: FlowStepId; label: string; to: string }[] = [
   { id: "catalogos", label: "Catálogos", to: "/inventario/materias-primas" },
   { id: "compras", label: "Compras", to: "/operaciones/compras" },
   { id: "recetas", label: "Recetas", to: "/produccion/recetas" },
-  { id: "planes", label: "Planes", to: "/produccion/planes" },
+  { id: "ficha-costo", label: "Ficha de costo", to: "/produccion/fichas-costo" },
   { id: "elaboracion", label: "Elaboración", to: "/produccion/producciones" },
   { id: "terminacion", label: "Terminación", to: "/operaciones/transformacion" },
   { id: "ventas", label: "Ventas", to: "/operaciones/ventas" },

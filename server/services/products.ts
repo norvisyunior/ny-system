@@ -236,13 +236,28 @@ export function getProductDetail(db: DBOrTx, id: number) {
     .from(inventoryMovements)
     .where(and(eq(inventoryMovements.itemType, "product"), eq(inventoryMovements.itemId, id)))
     .orderBy(desc(inventoryMovements.id))
-    .limit(100)
+    .limit(5)
     .all();
   const priceHistoryRows = db
     .select()
     .from(priceHistory)
     .where(eq(priceHistory.productId, id))
     .orderBy(desc(priceHistory.validFrom), desc(priceHistory.id))
+    .limit(5)
     .all();
-  return { product, lots, movements, priceHistory: priceHistoryRows, stockValueMicro };
+  const priceHistoryTotal =
+    db
+      .select({ total: sql<number>`COUNT(*)` })
+      .from(priceHistory)
+      .where(eq(priceHistory.productId, id))
+      .get()?.total ?? 0;
+  return {
+    product,
+    lots: lots.slice(0, 5),
+    lotsTotal: lots.length,
+    movements,
+    priceHistory: priceHistoryRows,
+    priceHistoryTotal,
+    stockValueMicro,
+  };
 }

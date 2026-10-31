@@ -36,7 +36,6 @@ function StatTile({
 }
 
 export function ProductionStatusCard({ data }: { data: DashboardData }) {
-  const plan = data.plan;
   const isTotals = data.mode === "totals";
   const pt = data.productionTotals;
   const packagesToday = isTotals
@@ -67,10 +66,10 @@ export function ProductionStatusCard({ data }: { data: DashboardData }) {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
           <p className="text-sm text-slate-500">Sin producciones registradas hoy.</p>
           <Link
-            to="/produccion/planes"
+            to="/produccion/producciones"
             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-800"
           >
-            Planificar producción <ArrowRight size={15} />
+            Registrar producción <ArrowRight size={15} />
           </Link>
         </div>
       ) : (
@@ -100,20 +99,9 @@ export function ProductionStatusCard({ data }: { data: DashboardData }) {
             />
           </div>
 
-          {plan?.status === "bloqueado" && plan.missingMaterials.length > 0 && (
-            <ul className="mt-2 space-y-1 rounded-lg border border-red-100 bg-red-50/70 px-3 py-2 text-xs text-red-700">
-              {plan.missingMaterials.slice(0, 3).map((m) => (
-                <li key={m.name}>
-                  Falta {fmtQty(m.missingMicro, m.unitId)} de {m.name} (disponible:{" "}
-                  {fmtQty(m.availableMicro, m.unitId)})
-                </li>
-              ))}
-            </ul>
-          )}
-
           <div className="mt-auto flex justify-end pt-3">
             <Link
-              to="/produccion/planes"
+              to="/produccion/producciones"
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-600 transition-colors hover:border-emerald-300 hover:text-emerald-700"
             >
               Ver detalle de producción <ArrowRight size={14} />

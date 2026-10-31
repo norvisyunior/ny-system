@@ -13,13 +13,13 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiError } from "../api/client";
-import { ErrorAlert, Modal, Badge } from "../components/ui";
+import { ErrorAlert, FlowGuide, Modal, Badge } from "../components/ui";
 import { divRoundAway, mulQtyPrice } from "@shared/money";
 
 // ---------------------------------------------------------------------------
 // Tipos (espejo de la respuesta del backend)
 // ---------------------------------------------------------------------------
-type PriceBasis = "promedio" | "ultimo" | "ninguno" | "manual";
+type PriceBasis = "promedio" | "ultimo" | "ultimo_costo" | "ninguno" | "manual";
 type RateBasis = "configurada" | "simulada" | "sin_configurar";
 
 interface CostItemLine {
@@ -414,6 +414,7 @@ const hasOv = (ov: Overrides): boolean =>
 const PRICE_LABEL: Record<PriceBasis, string> = {
   promedio: "Promedio inventario",
   ultimo: "Última compra",
+  ultimo_costo: "Último costo",
   manual: "Precio manual",
   ninguno: "Sin precio",
 };
@@ -1384,6 +1385,8 @@ export function CostSheetsPage() {
           </div>
         )}
       </div>
+
+      <FlowGuide current="ficha-costo" />
 
       <ErrorAlert message={error} />
 

@@ -1,10 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
 import {
+  auditKeepDaysSchema,
+  auditPurgePreview,
   backupAudit,
   backupPath,
   createBackup,
+  getAuditRetentionDays,
   listBackups,
+  purgeAudit,
   restoreBackup,
   validateBackup,
 } from "../services/backup";
@@ -34,6 +38,28 @@ backupsRouter.post("/", (req, res) => {
     bytes: info.bytes,
   });
   res.json({ ok: true, data: info });
+});
+
+const keepDaysParam = z.coerce.number().pipe(auditKeepDaysSchema);
+
+backupsRouter.get("/maintenance/audit", (req, res) => {
+  const h = handle(req);
+  const query = z.object({ keepDays: keepDaysParam.optional() }).parse(req.query);
+  const keepDays = query.keepDays ?? getAuditRetentionDays(h);
+  res.json({ ok: true, data: auditPurgePreview(h, keepDays) });
+});
+
+const purgeAuditBody = z.object({
+  confirm: z.literal(true, {
+    errorMap: () => ({ message: "Debe confirmar la limpieza de auditoría (confirm: true)." }),
+  }),
+  keepDays: keepDaysParam,
+});
+
+backupsRouter.post("/maintenance/audit/purge", (req, res) => {
+  const h = handle(req);
+  const body = purgeAuditBody.parse(req.body);
+  res.json({ ok: true, data: purgeAudit(h, body.keepDays) });
 });
 
 backupsRouter.get("/:file/download", (req, res) => {

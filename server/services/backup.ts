@@ -2,16 +2,26 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } fr
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { count, lt, type SQL } from "drizzle-orm";
+import { z } from "zod";
+import { auditLogs } from "../../db/schema";
 import { conflictError, domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
 import { DEFAULT_DB_PATH, createDb, releaseHandle, setDbHandle, type DbHandle } from "../db";
 import { getSetting, setSetting } from "./settings";
-import { todayISO } from "../domain/dates";
+import { addDaysISO, todayISO } from "../domain/dates";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const BACKUP_DIR = path.join(ROOT, "data", "backups");
-const MAX_BACKUPS = 20;
+const MAX_BACKUPS = 36;
 const FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.db$/;
+
+export const DEFAULT_AUDIT_RETENTION_DAYS = 180;
+export const auditKeepDaysSchema = z
+  .number()
+  .int("Los días deben ser un número entero.")
+  .min(7, "Conserve al menos 7 días de auditoría.")
+  .max(3650, "El máximo de retención es 3650 días (10 años).");
 
 export interface BackupInfo {
   file: string;
@@ -161,17 +171,113 @@ export function restoreBackup(handle: DbHandle, file: string): RestoreResult {
   };
 }
 
-/** Backup automático diario al arrancar (retención manejada en createBackup). */
+/**
+ * Backup automático mensual: una copia al mes calendario. Se comprueba al
+ * arrancar y periódicamente (por si la aplicación queda abierta cambia el mes).
+ * Los respaldos manuales siguen siendo bajo demanda.
+ */
 export function runAutoBackup(handle: DbHandle): void {
   try {
-    const today = todayISO();
-    const last = getSetting(handle.db, "lastAutoBackup");
-    if (last === today) return;
+    const month = todayISO().slice(0, 7);
+    const last = getSetting(handle.db, "lastAutoBackupMonth");
+    if (last === month) return;
     createBackup(handle, "auto");
-    setSetting(handle.db, "lastAutoBackup", today);
+    setSetting(handle.db, "lastAutoBackupMonth", month);
   } catch (err) {
     console.warn("[ny-system] Backup automático omitido:", (err as Error).message);
   }
+}
+
+function countAudit(handle: DbHandle, where?: SQL): number {
+  const q = handle.db.select({ n: count() }).from(auditLogs);
+  const row = where ? q.where(where).get() : q.get();
+  return Number(row?.n ?? 0);
+}
+
+export function getAuditRetentionDays(handle: DbHandle): number {
+  const saved = Number(getSetting(handle.db, "auditRetentionDays"));
+  const parsed = auditKeepDaysSchema.safeParse(saved);
+  return parsed.success ? parsed.data : DEFAULT_AUDIT_RETENTION_DAYS;
+}
+
+export interface AuditPurgePreview {
+  keepDays: number;
+  /** Se conserva desde este día (inclusive); lo anterior se elimina. */
+  cutoff: string;
+  candidates: number;
+  remaining: number;
+  oldest: string | null;
+}
+
+export function auditPurgePreview(handle: DbHandle, keepDays: number): AuditPurgePreview {
+  const days = auditKeepDaysSchema.parse(keepDays);
+  const cutoff = addDaysISO(todayISO(), -days);
+  const candidates = countAudit(handle, lt(auditLogs.createdAt, cutoff));
+  const oldest =
+    handle.db
+      .select({ createdAt: auditLogs.createdAt })
+      .from(auditLogs)
+      .orderBy(auditLogs.createdAt)
+      .limit(1)
+      .get()?.createdAt ?? null;
+  return {
+    keepDays: days,
+    cutoff,
+    candidates,
+    remaining: countAudit(handle) - candidates,
+    oldest,
+  };
+}
+
+export interface AuditPurgeResult {
+  deleted: number;
+  remaining: number;
+  vacuumed: boolean;
+  cutoff: string;
+}
+
+/**
+ * Elimina la auditoría anterior al corte y compacta el archivo. La numeración
+ * de documentos vive en `doc_counters`, así que la purga no la afecta.
+ */
+export function purgeAudit(handle: DbHandle, keepDays: number): AuditPurgeResult {
+  const preview = auditPurgePreview(handle, keepDays);
+  let deleted = 0;
+  if (preview.candidates > 0) {
+    deleted = Number(
+      handle.db
+        .transaction((tx) =>
+          tx.delete(auditLogs).where(lt(auditLogs.createdAt, preview.cutoff)).run(),
+        )
+        .changes,
+    );
+  }
+  let vacuumed = false;
+  if (deleted > 0) {
+    try {
+      handle.client.exec("VACUUM");
+      vacuumed = true;
+    } catch (err) {
+      console.warn("[ny-system] VACUUM omitido:", (err as Error).message);
+    }
+  }
+  setSetting(handle.db, "auditRetentionDays", String(preview.keepDays));
+  logAudit(handle.db, {
+    action: "audit.purge",
+    entityType: "audit_log",
+    entityId: null,
+    summary:
+      deleted > 0
+        ? `Auditoría depurada: ${deleted} evento(s) anterior(es) a ${preview.cutoff}`
+        : `Auditoría revisada: no había eventos anteriores a ${preview.cutoff}`,
+    details: { keepDays: preview.keepDays, cutoff: preview.cutoff, deleted, vacuumed },
+  });
+  return {
+    deleted,
+    remaining: countAudit(handle),
+    vacuumed,
+    cutoff: preview.cutoff,
+  };
 }
 
 export function backupAudit(handle: DbHandle, action: string, summary: string, details?: unknown): void {

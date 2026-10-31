@@ -98,24 +98,11 @@ interface RecipeVersionDetail {
   massUnit: string | null;
 }
 
-interface PlanOption {
-  id: number;
-  number: number;
-  planDate: string;
-  status: string;
-  recipeName: string | null;
-  version: number | null;
-  productName: string | null;
-  targetPackagesMicro: number;
-  plannedMassesMicro: number;
-  elaboratedMassesMicro: number;
-}
-
 interface ConfirmResult {
   id: number;
   number: number;
   duplicated: boolean;
-  /** OJO del server: son las MASAS esperadas (plan), no paquetes por masa. */
+  /** OJO del server: son las MASAS esperadas, no paquetes por masa. */
   expectedYieldMicro: number;
   realYieldMicro: number;
   deviationMicro: number;
@@ -133,7 +120,6 @@ const laborValidText = (v: string): boolean => {
 
 export function ProductionsPage() {
   const [recipes, setRecipes] = useState<RecipeOption[]>([]);
-  const [plans, setPlans] = useState<PlanOption[]>([]);
   const [rates, setRates] = useState<LaborRateRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "form">("list");
@@ -141,7 +127,6 @@ export function ProductionsPage() {
     productionDate: todayISO(),
     recipeVersionId: "",
     massesCount: "",
-    planId: "",
     responsible: "",
     notes: "",
     laborCost: "",
@@ -187,26 +172,16 @@ export function ProductionsPage() {
   useEffect(() => {
     Promise.all([
       api.get<RecipeOption[]>("/recipes"),
-      api.get<PlanOption[]>("/plans"),
       api.get<LaborRateRow[]>("/labor-rates"),
     ])
-      .then(([rs, ps, lr]) => {
+      .then(([rs, lr]) => {
         setRecipes(rs.filter((r) => r.active && r.versionId != null));
-        setPlans(ps);
         setRates(lr);
       })
       .catch(() => undefined);
   }, []);
 
   const selectedRecipe = recipes.find((r) => String(r.versionId) === form.recipeVersionId);
-  const plansForRecipe = plans.filter(
-    (p) =>
-      p.status === "planificada" &&
-      selectedRecipe != null &&
-      p.recipeName === selectedRecipe.name &&
-      p.version === selectedRecipe.version,
-  );
-  const selectedPlan = plansForRecipe.find((p) => String(p.id) === form.planId);
 
   // Default de mano de obra: tarifa de la masa × masas a elaborar, hasta que
   // el usuario edite el campo (o lo deje vacío para volver a la tarifa).
@@ -222,7 +197,7 @@ export function ProductionsPage() {
   }, [laborDirty, rates, recipes, form.recipeVersionId, form.massesCount]);
 
   const onRecipeChange = (versionId: string) => {
-    setForm((f) => ({ ...f, recipeVersionId: versionId, massesCount: "", planId: "" }));
+    setForm((f) => ({ ...f, recipeVersionId: versionId, massesCount: "" }));
     setLaborDirty(false);
     setPreview(null);
     if (!versionId) return;
@@ -237,7 +212,6 @@ export function ProductionsPage() {
       productionDate: todayISO(),
       recipeVersionId: "",
       massesCount: "",
-      planId: "",
       responsible: "",
       notes: "",
       laborCost: "",
@@ -261,7 +235,6 @@ export function ProductionsPage() {
       productionDate: todayISO(),
       recipeVersionId: rv,
       massesCount: searchParams.get("masses") ?? "",
-      planId: "",
       responsible: "",
       notes: "",
       laborCost: "",
@@ -287,14 +260,13 @@ export function ProductionsPage() {
         recipeVersionId: Number(form.recipeVersionId),
         massesCount: form.massesCount,
         laborCost: form.laborCost.trim() === "" ? null : form.laborCost.trim().replace(",", "."),
-        planId: form.planId ? Number(form.planId) : null,
         responsible: form.responsible.trim() || null,
         notes: form.notes || null,
         clientToken,
       });
       // Opción de encadenar: terminar (empaquetar) las masas recién producidas.
-      // OJO: res.expectedYieldMicro del POST son las MASAS esperadas (plan), no
-      // paquetes; los paquetes esperados = masas × rendimiento (yield) de la receta.
+      // OJO: res.expectedYieldMicro del POST son las MASAS esperadas, no paquetes;
+      // los paquetes esperados = masas × rendimiento (yield) de la receta.
       if (selectedRecipe) {
         setJustProduced({
           number: res.number,
@@ -342,15 +314,6 @@ export function ProductionsPage() {
 
   const massesInt = isPositiveInt(form.massesCount);
   const laborValid = laborValidText(form.laborCost);
-  const expectedMasses = selectedPlan
-    ? selectedPlan.plannedMassesMicro
-    : massesInt
-      ? Number(form.massesCount) * 1_000_000
-      : null;
-  const deviationMicro =
-    expectedMasses != null && massesInt
-      ? Number(form.massesCount) * 1_000_000 - expectedMasses
-      : null;
 
   return (
     <div>
@@ -530,24 +493,7 @@ export function ProductionsPage() {
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-3 gap-3">
-            <div className="field">
-              <label>Plan (opcional)</label>
-              <select
-                value={form.planId}
-                onChange={(e) => setForm({ ...form, planId: e.target.value })}
-                disabled={!selectedRecipe}
-              >
-                <option value="">Sin plan</option>
-                {plansForRecipe.map((p) => (
-                  <option key={p.id} value={String(p.id)}>
-                    #{String(p.number).padStart(5, "0")} — {p.planDate}:{" "}
-                    {fmtQty(p.targetPackagesMicro, null, 0)} paq →{" "}
-                    {fmtQty(p.plannedMassesMicro, null, 0)} masas
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
             <div className="field">
               <label>Mano de obra de elaboración ($)</label>
               <input
@@ -573,7 +519,7 @@ export function ProductionsPage() {
           </div>
 
           {preview && (
-            <div className="mt-4 grid grid-cols-4 gap-4 rounded-md bg-slate-50 p-4 text-sm">
+            <div className="mt-4 grid grid-cols-3 gap-4 rounded-md bg-slate-50 p-4 text-sm">
               <div>
                 <div className="text-slate-500">Masa destino</div>
                 <div className="font-semibold">{preview.massName}</div>
@@ -585,24 +531,9 @@ export function ProductionsPage() {
                 </div>
               </div>
               <div>
-                <div className="text-slate-500">Masas esperadas</div>
+                <div className="text-slate-500">Masas a elaborar</div>
                 <div className="font-semibold">
-                  {expectedMasses != null
-                    ? fmtQty(expectedMasses, preview.massUnit)
-                    : "—"}
-                  {selectedPlan
-                    ? " (según plan)"
-                    : !selectedPlan && massesInt
-                      ? " (sin plan: igual a las elaboradas)"
-                      : ""}
-                </div>
-              </div>
-              <div>
-                <div className="text-slate-500">Desviación</div>
-                <div className="font-semibold">
-                  {deviationMicro != null
-                    ? `${deviationMicro > 0 ? "+" : ""}${fmtQty(deviationMicro, preview.massUnit)}`
-                    : "—"}
+                  {massesInt ? fmtQty(Number(form.massesCount) * 1_000_000, preview.massUnit) : "—"}
                 </div>
               </div>
             </div>

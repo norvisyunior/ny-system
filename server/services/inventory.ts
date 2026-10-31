@@ -6,14 +6,18 @@
  * 'adjustment_out' y actualiza el stock cacheado del ítem. Las entradas
  * positivas crean un lote de ajuste con costo 0: el costo real solo entra
  * por compras/producción, nunca por un ajuste manual.
+ *
+ * Las mermas con valor PEPS generan además un gasto automático (categoría
+ * "Merma") para que la pérdida impacte el resultado del día.
  */
 import {
   finishedProducts,
   inventoryMovements,
   masses,
   rawMaterials,
+  supplies,
 } from "../../db/schema";
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { domainError, notFoundError } from "../domain/errors";
 import { logAudit } from "../domain/audit";
@@ -21,14 +25,17 @@ import { assertValidBusinessDate, nowISO, todayISO } from "../domain/dates";
 import { consumeFIFO, createLot, availableStock } from "../domain/fifo";
 import { decMicro } from "../domain/zod-helpers";
 import { microToDecimalTrim, mulQtyPrice } from "../../shared/money";
+import { createExpense, expenseInput } from "./expenses";
 import type { DBOrTx } from "../domain/types";
 
-export type InventoryItemType = "raw" | "mass" | "product";
-const ITEM_TYPES = ["raw", "mass", "product"] as const;
+export type InventoryItemType = "raw" | "mass" | "product" | "supply";
+const ITEM_TYPES = ["raw", "mass", "product", "supply"] as const;
 
 const adjustBase = z.object({
   itemType: z.enum(ITEM_TYPES, {
-    errorMap: () => ({ message: "Tipo de inventario inválido (materia prima, masa o producto)." }),
+    errorMap: () => ({
+      message: "Tipo de inventario inválido (materia prima, masa, producto u otro insumo).",
+    }),
   }),
   itemId: z.number().int().positive(),
   businessDate: z.string().optional(),
@@ -63,12 +70,22 @@ function loadTarget(
     const row = tx.select().from(masses).where(eq(masses.id, itemId)).get();
     if (row) return { name: row.name, unitId: row.unitId, active: row.active };
   }
+  if (itemType === "supply") {
+    const row = tx.select().from(supplies).where(eq(supplies.id, itemId)).get();
+    if (row) return { name: row.name, unitId: row.unitId, active: row.active };
+  }
   const row = tx.select().from(finishedProducts).where(eq(finishedProducts.id, itemId)).get();
   if (!row) throw notFoundError("Producto del inventario");
   return { name: row.name, unitId: row.saleUnitId, active: row.active };
 }
 
 const fmtQty = (micro: number, unitId: string) => `${microToDecimalTrim(micro, 3)} ${unitId}`;
+
+/** Descripción de gasto dentro del límite de 200 caracteres. */
+function expenseDescription(base: string, reason: string): string {
+  const text = `${base}: ${reason}`;
+  return text.length > 200 ? `${text.slice(0, 199)}…` : text;
+}
 
 interface ConsumedLot {
   lotId: number;
@@ -85,6 +102,8 @@ export interface StockAdjustmentResult {
   stockMicro: number;
   deltaMicro: number;
   lossValueMicro: number;
+  /** Gasto creado automáticamente por la merma (null si no hubo pérdida). */
+  expenseId: number | null;
 }
 
 /**
@@ -111,6 +130,11 @@ export function runStockAdjustment(db: DBOrTx, input: StockAdjustmentInput): Sto
           .set({ stockMicro: sql`${masses.stockMicro} + ${delta}`, updatedAt: nowISO() })
           .where(eq(masses.id, input.itemId))
           .run();
+      } else if (input.itemType === "supply") {
+        tx.update(supplies)
+          .set({ stockMicro: sql`${supplies.stockMicro} + ${delta}`, updatedAt: nowISO() })
+          .where(eq(supplies.id, input.itemId))
+          .run();
       } else {
         tx.update(finishedProducts)
           .set({ stockMicro: sql`${finishedProducts.stockMicro} + ${delta}`, updatedAt: nowISO() })
@@ -126,8 +150,9 @@ export function runStockAdjustment(db: DBOrTx, input: StockAdjustmentInput): Sto
       valueMicro: number,
       lotId: number | null,
       refType: "merma" | "ajuste",
-    ) => {
-      tx.insert(inventoryMovements)
+    ): number => {
+      return tx
+        .insert(inventoryMovements)
         .values({
           businessDate,
           itemType: input.itemType,
@@ -141,28 +166,64 @@ export function runStockAdjustment(db: DBOrTx, input: StockAdjustmentInput): Sto
           refId: null,
           reason: input.reason,
         })
-        .run();
+        .returning({ id: inventoryMovements.id })
+        .get().id;
     };
 
     let deltaMicro: number;
     let lossValueMicro = 0;
+    let expenseId: number | null = null;
 
     if (input.kind === "merma") {
       // Si no alcanza el inventario PEPS, consumeFIFO lanza error claro
       // (sin estado parcial: la transacción hace rollback completo).
       const consumed = consumeFIFO(tx, input.itemType, input.itemId, input.qty, target.name, fmt);
+      const movementIds: number[] = [];
       for (const c of consumed) {
         const lineValue = mulQtyPrice(c.qtyMicro, c.unitCostMicro);
         lossValueMicro += lineValue;
-        writeMovement("waste", -c.qtyMicro, c.unitCostMicro, lineValue, c.lotId, "merma");
+        movementIds.push(
+          writeMovement("waste", -c.qtyMicro, c.unitCostMicro, lineValue, c.lotId, "merma"),
+        );
       }
       deltaMicro = -input.qty;
+
+      // La merma con valor PEPS genera un gasto automático en Gastos.
+      if (lossValueMicro > 0) {
+        const expense = createExpense(
+          tx,
+          expenseInput.parse({
+            expenseDate: businessDate,
+            category: "Merma",
+            description: expenseDescription(
+              `Merma de "${target.name}" (${fmt(input.qty)})`,
+              input.reason,
+            ),
+            amount: microToDecimalTrim(lossValueMicro, 6),
+            paymentMethod: "otro",
+            notes: `Gasto automático por merma de inventario (movimientos #${movementIds.join(", ")}).`,
+          }),
+        );
+        expenseId = expense.id;
+        tx.update(inventoryMovements)
+          .set({ refId: expense.id })
+          .where(inArray(inventoryMovements.id, movementIds))
+          .run();
+      }
+
       logAudit(tx, {
         action: "inventory.merma",
         entityType: `inventory_${input.itemType}`,
         entityId: input.itemId,
         summary: `Merma de "${target.name}": ${fmt(input.qty)} — ${input.reason}`,
-        details: { kind: "merma", qtyMicro: input.qty, lossValueMicro, reason: input.reason, businessDate },
+        details: {
+          kind: "merma",
+          qtyMicro: input.qty,
+          lossValueMicro,
+          expenseId,
+          reason: input.reason,
+          businessDate,
+        },
       });
     } else {
       const delta = input.newTotal - available;
@@ -203,7 +264,13 @@ export function runStockAdjustment(db: DBOrTx, input: StockAdjustmentInput): Sto
         entityType: `inventory_${input.itemType}`,
         entityId: input.itemId,
         summary: `Ajuste de stock de "${target.name}": ${fmt(available)} → ${fmt(input.newTotal)} — ${input.reason}`,
-        details: { kind: "ajuste", deltaMicro, lossValueMicro, reason: input.reason, businessDate },
+        details: {
+          kind: "ajuste",
+          deltaMicro,
+          lossValueMicro,
+          reason: input.reason,
+          businessDate,
+        },
       });
     }
 
@@ -217,6 +284,7 @@ export function runStockAdjustment(db: DBOrTx, input: StockAdjustmentInput): Sto
       stockMicro: available + deltaMicro,
       deltaMicro,
       lossValueMicro,
+      expenseId,
     };
   });
 }
@@ -244,6 +312,7 @@ const nameExpr = sql<string>`(
   CASE ${inventoryMovements.itemType}
     WHEN 'raw' THEN (SELECT name FROM raw_materials m WHERE m.id = ${inventoryMovements.itemId})
     WHEN 'mass' THEN (SELECT name FROM masses m WHERE m.id = ${inventoryMovements.itemId})
+    WHEN 'supply' THEN (SELECT name FROM supplies s WHERE s.id = ${inventoryMovements.itemId})
     ELSE (SELECT name FROM finished_products p WHERE p.id = ${inventoryMovements.itemId})
   END
 )`;
@@ -252,6 +321,7 @@ const unitExpr = sql<string>`(
   CASE ${inventoryMovements.itemType}
     WHEN 'raw' THEN (SELECT unit_id FROM raw_materials m WHERE m.id = ${inventoryMovements.itemId})
     WHEN 'mass' THEN (SELECT unit_id FROM masses m WHERE m.id = ${inventoryMovements.itemId})
+    WHEN 'supply' THEN (SELECT unit_id FROM supplies s WHERE s.id = ${inventoryMovements.itemId})
     ELSE (SELECT sale_unit_id FROM finished_products p WHERE p.id = ${inventoryMovements.itemId})
   END
 )`;
@@ -302,7 +372,13 @@ export function listStockAdjustments(
   const where = and(...conds);
 
   const label = (t: string): string =>
-    t === "raw" ? "Materia prima" : t === "mass" ? "Masa" : "Producto terminado";
+    t === "raw"
+      ? "Materia prima"
+      : t === "mass"
+        ? "Masa"
+        : t === "supply"
+          ? "Otro insumo"
+          : "Producto terminado";
   const map = (r: StockAdjustmentBase): StockAdjustmentRow => ({
     ...r,
     itemTypeLabel: label(r.itemType),

@@ -1,13 +1,15 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
+  Boxes,
+  Building2,
   Calculator,
   CalendarCheck,
   ChartColumn,
-  ClipboardList,
   Cookie,
   DollarSign,
   Factory,
+  FlaskConical,
   Gauge,
   Home,
   PackageCheck,
@@ -39,8 +41,8 @@ export const NAV: NavGroup[] = [
   {
     label: "Operaciones",
     items: [
+      { label: "Fichas de costo", path: "/produccion/fichas-costo", icon: Calculator },
       { label: "Compras", path: "/operaciones/compras", icon: ShoppingCart },
-      { label: "Empaquetado", path: "/operaciones/transformacion", icon: Repeat },
       { label: "Ventas", path: "/operaciones/ventas", icon: Receipt },
       { label: "Cierre diario", path: "/operaciones/cierre", icon: CalendarCheck },
     ],
@@ -49,17 +51,18 @@ export const NAV: NavGroup[] = [
     label: "Inventario",
     items: [
       { label: "Materias primas", path: "/inventario/materias-primas", icon: Wheat },
+      { label: "Elaboraciones", path: "/inventario/elaboraciones", icon: FlaskConical },
       { label: "Masas", path: "/inventario/masas", icon: Cookie },
       { label: "Productos terminados", path: "/inventario/productos", icon: PackageCheck },
+      { label: "Otros insumos", path: "/inventario/insumos", icon: Boxes },
     ],
   },
   {
     label: "Producción",
     items: [
       { label: "Recetas", path: "/produccion/recetas", icon: BookOpen },
-      { label: "Fichas de costo", path: "/produccion/fichas-costo", icon: Calculator },
-      { label: "Planes", path: "/produccion/planes", icon: ClipboardList },
       { label: "Producciones", path: "/produccion/producciones", icon: Factory },
+      { label: "Empaquetado", path: "/operaciones/transformacion", icon: Repeat },
       { label: "Rendimientos", path: "/produccion/rendimientos", icon: Gauge },
     ],
   },
@@ -69,6 +72,7 @@ export const NAV: NavGroup[] = [
       { label: "Ingresos", path: "/finanzas/ingresos", icon: TrendingUp },
       { label: "Costos", path: "/finanzas/costos", icon: DollarSign },
       { label: "Gastos", path: "/finanzas/gastos", icon: Wallet },
+      { label: "Activos fijos", path: "/finanzas/activos", icon: Building2 },
       { label: "Rentabilidad", path: "/finanzas/rentabilidad", icon: Percent },
     ],
   },

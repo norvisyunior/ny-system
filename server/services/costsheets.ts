@@ -121,7 +121,7 @@ export type CostSheetInput = zr.infer<typeof costSheetInput>;
 // ---------------------------------------------------------------------------
 // Tipos de salida
 // ---------------------------------------------------------------------------
-export type PriceBasis = "promedio" | "ultimo" | "ninguno" | "manual";
+export type PriceBasis = "promedio" | "ultimo" | "ultimo_costo" | "ninguno" | "manual";
 export type RateBasis = "configurada" | "simulada" | "sin_configurar";
 
 export interface CostItemLine {
@@ -434,7 +434,7 @@ function buildCostSheet(
     if (iid >= 0 && !itemsById.has(iid)) throw domainError(`El ítem ${iid} no pertenece a la receta.`);
   }
   const lastByMat = new Map(
-    listMaterials(tx, {}).map((m) => [m.id, m.lastPrice] as const),
+    listMaterials(tx, {}).map((m) => [m.id, m] as const),
   );
 
   // Tarifas configuradas (integración mínima: tabla labor_rates).
@@ -660,7 +660,7 @@ function buildCostSheet(
     }
     if (compatible) {
       // Precio por unidad base: override manual → promedio PEPS vigente →
-      // último precio de compra confirmado.
+      // último precio de compra confirmado → último costo de lote (elaboradas).
       const manualPriceMicro = opts.itemPrice?.get(item.id);
       if (manualPriceMicro != null) {
         line.priceBasis = "manual";
@@ -671,7 +671,8 @@ function buildCostSheet(
           line.priceBasis = "promedio";
           line.pricePerBaseMicro = avg;
         } else {
-          const lp = lastByMat.get(effectiveMat.id) ?? null;
+          const matInfo = lastByMat.get(effectiveMat.id) ?? null;
+          const lp = matInfo?.lastPrice ?? null;
           if (lp) {
             if (compatibleUnits(catalog, lp.unitId, effectiveMat.unitId)) {
               line.priceBasis = "ultimo";
@@ -689,6 +690,15 @@ function buildCostSheet(
                 `El último precio de "${effectiveMat.name}" está expresado en "${lp.unitId}", unidad incompatible con su base: sin precio usable.`,
               );
             }
+          } else {
+            const lc = matInfo?.lastCost ?? null;
+            if (lc) {
+              line.priceBasis = "ultimo_costo";
+              line.pricePerBaseMicro = lc.costMicro;
+              line.priceUnitId = effectiveMat.unitId;
+              line.priceDate = lc.date;
+              line.priceSupplier = null;
+            }
           }
         }
       }
@@ -702,7 +712,7 @@ function buildCostSheet(
         line.costMicro = mulQtyPrice(line.totalBaseMicro, line.pricePerBaseMicro);
       } else {
         line.warnings.push(
-          `"${effectiveMat.name}" no tiene precio (sin existencias valorizadas ni compras confirmadas): su costo NO está incluido en el total.`,
+          `"${effectiveMat.name}" no tiene precio (sin existencias valorizadas, compras confirmadas ni elaboraciones): su costo NO está incluido en el total.`,
         );
       }
     }

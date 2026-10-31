@@ -12,13 +12,14 @@ import {
   recipeVersions,
   saleItems,
   sales,
+  supplies,
   suppliers,
   stockLots,
   transformationOutputs,
   transformations,
 } from "../../db/schema";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
-import { todayISO } from "../domain/dates";
+import { and, asc, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { addDaysISO, todayISO } from "../domain/dates";
 import { microToDecimal, microToDecimalTrim } from "../../shared/money";
 import type { DBOrTx } from "../domain/types";
 
@@ -75,12 +76,7 @@ export interface ReportRange {
 
 function defaultRange(opts: ReportRange): { from: string; to: string } {
   const to = opts.to && DATE_RE.test(opts.to) ? opts.to : todayISO();
-  let from = opts.from && DATE_RE.test(opts.from) ? opts.from : "";
-  if (!from) {
-    const d = new Date(`${to}T12:00:00`);
-    d.setDate(d.getDate() - 29);
-    from = d.toISOString().slice(0, 10);
-  }
+  const from = opts.from && DATE_RE.test(opts.from) ? opts.from : addDaysISO(to, -29);
   return { from, to };
 }
 
@@ -225,7 +221,8 @@ function comprasReport(db: DBOrTx, range: { from: string; to: string }): ReportR
       numero: purchases.number,
       doc: purchases.docNumber,
       proveedor: suppliers.name,
-      material: rawMaterials.name,
+      material: sql<string>`COALESCE(${rawMaterials.name}, ${supplies.name})`,
+      tipo: sql<string>`CASE WHEN ${purchaseItems.supplyId} IS NULL THEN 'Materia prima' ELSE 'Insumo' END`,
       cantidad: purchaseItems.qtyBaseMicro,
       precioUnit: purchaseItems.unitPriceMicro,
       total: purchaseItems.lineTotalMicro,
@@ -234,14 +231,15 @@ function comprasReport(db: DBOrTx, range: { from: string; to: string }): ReportR
     .from(purchaseItems)
     .innerJoin(purchases, eq(purchaseItems.purchaseId, purchases.id))
     .innerJoin(suppliers, eq(purchases.supplierId, suppliers.id))
-    .innerJoin(rawMaterials, eq(purchaseItems.rawMaterialId, rawMaterials.id))
+    .leftJoin(rawMaterials, eq(purchaseItems.rawMaterialId, rawMaterials.id))
+    .leftJoin(supplies, eq(purchaseItems.supplyId, supplies.id))
     .where(and(sql`${purchases.purchaseDate} >= ${range.from}`, sql`${purchases.purchaseDate} <= ${range.to}`))
     .orderBy(asc(purchases.purchaseDate), asc(purchases.number))
     .all();
 
   return {
     name: "compras",
-    title: "Compras de materias primas",
+    title: "Compras de materias primas e insumos",
     from: range.from,
     to: range.to,
     columns: [
@@ -249,7 +247,8 @@ function comprasReport(db: DBOrTx, range: { from: string; to: string }): ReportR
       { key: "numero", label: "Nº" },
       { key: "doc", label: "Doc." },
       { key: "proveedor", label: "Proveedor" },
-      { key: "material", label: "Materia prima" },
+      { key: "tipo", label: "Tipo" },
+      { key: "material", label: "Ítem" },
       { key: "cantidad", label: "Cantidad", fmt: "qty", align: "num" },
       { key: "precioUnit", label: "Precio unit. ($)", fmt: "money", align: "num" },
       { key: "total", label: "Total ($)", fmt: "money", align: "num" },
@@ -541,8 +540,8 @@ function auditoriaReport(db: DBOrTx, range: { from: string; to: string }): Repor
     .from(auditLogs)
     .where(
       and(
-        sql`substr(${auditLogs.createdAt}, 1, 10) >= ${range.from}`,
-        sql`substr(${auditLogs.createdAt}, 1, 10) <= ${range.to}`,
+        gte(auditLogs.createdAt, range.from),
+        lt(auditLogs.createdAt, addDaysISO(range.to, 1)),
       ),
     )
     .orderBy(desc(auditLogs.id))

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { expenses, inventoryMovements } from "../db/schema";
 import { availableStock } from "../server/domain/fifo";
 import { isAppError } from "../server/domain/errors";
 import {
@@ -200,5 +201,87 @@ describe("Ajustes de inventario y mermas", () => {
     expect(second.total).toBe(3);
     expect(second.items).toHaveLength(1);
     expect(second.items[0].reason).toBe("Ajuste uno");
+  });
+
+  it("una merma con valor PEPS crea un gasto automático enlazado", () => {
+    const flow = setupFlow();
+
+    const result = adjust(flow, {
+      kind: "merma",
+      itemType: "raw",
+      itemId: flow.harinaId,
+      qty: "10",
+      reason: "Harina vencida",
+    });
+
+    expect(result.lossValueMicro).toBe(5_000_000);
+    expect(result.expenseId).not.toBeNull();
+
+    const expense = flow.h.db
+      .select()
+      .from(expenses)
+      .all()
+      .find((e) => e.id === result.expenseId);
+    expect(expense).toBeDefined();
+    expect(expense?.category).toBe("Merma");
+    expect(expense?.amountMicro).toBe(5_000_000);
+    expect(expense?.expenseDate).toBe(flow.today);
+    expect(expense?.description).toContain("Harina");
+    expect(expense?.description).toContain("Harina vencida");
+
+    const waste = flow.h.db
+      .select()
+      .from(inventoryMovements)
+      .all()
+      .filter((m) => m.movementType === "waste");
+    expect(waste.length).toBeGreaterThan(0);
+    expect(waste.every((m) => m.refId === result.expenseId)).toBe(true);
+  });
+
+  it("una merma sin valor PEPS no crea gasto", () => {
+    const flow = setupFlow();
+    // Vacía el stock costeado y deja 10 kg de un lote con costo 0.
+    adjust(flow, {
+      kind: "ajuste",
+      itemType: "raw",
+      itemId: flow.harinaId,
+      newTotal: "0",
+      reason: "Vaciar stock",
+    });
+    adjust(flow, {
+      kind: "ajuste",
+      itemType: "raw",
+      itemId: flow.harinaId,
+      newTotal: "10",
+      reason: "Recuento",
+    });
+
+    const result = adjust(flow, {
+      kind: "merma",
+      itemType: "raw",
+      itemId: flow.harinaId,
+      qty: "10",
+      reason: "Sin valor",
+    });
+
+    expect(result.lossValueMicro).toBe(0);
+    expect(result.expenseId).toBeNull();
+    expect(flow.h.db.select().from(expenses).all()).toHaveLength(0);
+  });
+
+  it("un ajuste a la baja registra la pérdida pero no crea gasto", () => {
+    const flow = setupFlow();
+
+    const result = adjust(flow, {
+      kind: "ajuste",
+      itemType: "raw",
+      itemId: flow.harinaId,
+      newTotal: "490",
+      reason: "Recuento físico",
+    });
+
+    expect(result.lossValueMicro).toBe(5_000_000);
+    expect(result.expenseId).toBeNull();
+    expect(flow.h.db.select().from(expenses).all()).toHaveLength(0);
   });
 });
