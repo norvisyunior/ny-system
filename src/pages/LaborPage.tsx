@@ -94,6 +94,66 @@ function mondayOfToday(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function isoOf(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function mondayOfIso(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1));
+  return isoOf(d);
+}
+
+/** Todas las fechas ISO del rango [from, to], inclusive. */
+function allDatesBetween(from: string, to: string): string[] {
+  if (from > to) return [];
+  const out: string[] = [];
+  const d = new Date(`${from}T12:00:00`);
+  const end = new Date(`${to}T12:00:00`);
+  while (d <= end) {
+    out.push(isoOf(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+/** Reconstruye el calendario completo del rango: días sin operaciones quedan como filas vacías. */
+function buildCalendar(
+  summary: LaborSummary,
+  from: string,
+  to: string,
+): { days: LaborDayRow[]; weeks: LaborWeekRow[] } {
+  const byDate = new Map(summary.days.map((d) => [d.date, d]));
+  const days = allDatesBetween(from, to)
+    .reverse()
+    .map(
+      (date) => byDate.get(date) ?? { date, opsCount: 0, totalMicro: 0, ops: [] },
+    );
+
+  const buckets = new Map<string, LaborDayRow[]>();
+  for (const d of days) {
+    const ws = mondayOfIso(d.date);
+    const list = buckets.get(ws);
+    if (list) list.push(d);
+    else buckets.set(ws, [d]);
+  }
+
+  const weeks: LaborWeekRow[] = [...buckets.entries()].map(([weekStart, wdays]) => {
+    const end = new Date(`${weekStart}T12:00:00`);
+    end.setDate(end.getDate() + 6);
+    return {
+      weekStart,
+      weekEnd: isoOf(end),
+      opsCount: wdays.reduce((s, d) => s + d.opsCount, 0),
+      totalMicro: wdays.reduce((s, d) => s + d.totalMicro, 0),
+      days: wdays,
+    };
+  });
+
+  return { days, weeks };
+}
+
 function docCode(kind: LaborKind, n: number): string {
   const prefix = kind === "produccion" ? "PRD" : kind === "elaboracion" ? "ELB" : "TRM";
   return `${prefix}${String(n).padStart(5, "0")}`;
@@ -178,33 +238,24 @@ export function LaborPage() {
     load(from, to);
   }, [from, to, load]);
 
-  const applyRange = (r: "semana" | "mes" | "todo") => {
+  const applyRange = (r: "semana" | "mes") => {
     const today = todayIso();
     if (r === "semana") {
       setFrom(mondayOfToday());
       setTo(today);
-    } else if (r === "mes") {
-      setFrom(`${today.slice(0, 7)}-01`);
-      setTo(today);
     } else {
-      const d = new Date(`${today}T12:00:00`);
-      d.setDate(d.getDate() - 29);
-      setFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+      setFrom(`${today.slice(0, 7)}-01`);
       setTo(today);
     }
   };
 
-  const activeRange = (r: "semana" | "mes" | "todo"): boolean => {
+  const activeRange = (r: "semana" | "mes"): boolean => {
     const today = todayIso();
     if (r === "semana") return from === mondayOfToday() && to === today;
-    if (r === "mes") return from === `${to.slice(0, 7)}-01`;
-    const d = new Date(`${today}T12:00:00`);
-    d.setDate(d.getDate() - 29);
-    return (
-      from ===
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-    );
+    return from === `${to.slice(0, 7)}-01`;
   };
+
+  const calendar = summary ? buildCalendar(summary, from, to) : { days: [], weeks: [] };
 
   return (
     <div>
@@ -243,7 +294,7 @@ export function LaborPage() {
           />
         </div>
         <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-          {(["semana", "mes", "todo"] as const).map((r) => (
+          {(["semana", "mes"] as const).map((r) => (
             <button
               key={r}
               type="button"
@@ -252,7 +303,7 @@ export function LaborPage() {
                 activeRange(r) ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"
               }`}
             >
-              {r === "semana" ? "Esta semana" : r === "mes" ? "Este mes" : "30 días"}
+              {r === "semana" ? "Esta semana" : "Este mes"}
             </button>
           ))}
         </div>
@@ -307,58 +358,82 @@ export function LaborPage() {
         <div>
           {view === "diario" ? (
             <div className="flex flex-col gap-5">
-              {summary.days.length === 0 && (
-                <div className="card p-6 text-sm text-slate-500">
-                  No hay operaciones en el período seleccionado.
-                </div>
-              )}
-              {summary.days.map((d) => (
-                <div key={d.date} className="card overflow-hidden">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                    <div className="font-bold text-slate-800">
-                      {dayName(d.date)} {fmtFullDate(d.date)}
+              {calendar.days.map((d) =>
+                d.ops.length > 0 ? (
+                  <div key={d.date} className="card overflow-hidden">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                      <div className="font-bold text-slate-800">
+                        {dayName(d.date)} {fmtFullDate(d.date)}
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        {d.opsCount} operación(es) · Total del día{" "}
+                        <span className="font-bold text-slate-800">{fmtMoney(d.totalMicro)}</span>
+                      </div>
                     </div>
-                    <div className="text-sm text-slate-500">
-                      {d.opsCount} operación(es) · Total del día{" "}
-                      <span className="font-bold text-slate-800">{fmtMoney(d.totalMicro)}</span>
+                    <OpsTable ops={d.ops} />
+                  </div>
+                ) : (
+                  <div key={d.date} className="card overflow-hidden">
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 px-4 py-2.5">
+                      <div className="font-medium text-slate-300">
+                        {dayName(d.date)} {fmtFullDate(d.date)}
+                      </div>
+                      <div className="text-sm text-slate-300">Sin mano de obra · $0.00</div>
                     </div>
                   </div>
-                  <OpsTable ops={d.ops} />
-                </div>
-              ))}
+                ),
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-5">
-              {summary.weeks.length === 0 && (
-                <div className="card p-6 text-sm text-slate-500">
-                  No hay operaciones en el período seleccionado.
-                </div>
-              )}
-              {summary.weeks.map((w) => (
+              {calendar.weeks.map((w) => (
                 <div key={w.weekStart} className="card overflow-hidden">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                    <div className="font-bold text-slate-800">
-                      Semana del {dayShort(w.weekStart)} al {dayShort(w.weekEnd)}
-                    </div>
-                    <div className="text-sm text-slate-500">
-                      {w.opsCount} operación(es) · Total de la semana{" "}
-                      <span className="font-bold text-slate-800">{fmtMoney(w.totalMicro)}</span>
-                    </div>
-                  </div>
-                  {w.days.map((d) => (
-                    <div key={d.date}>
-                      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 px-4 py-2">
-                        <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                          {dayName(d.date)} · {fmtFullDate(d.date)}
+                  {w.opsCount > 0 ? (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                        <div className="font-bold text-slate-800">
+                          Semana del {dayShort(w.weekStart)} al {dayShort(w.weekEnd)}
                         </div>
-                        <div className="text-xs text-slate-500">
-                          Total día{" "}
-                          <span className="font-bold text-slate-700">{fmtMoney(d.totalMicro)}</span>
+                        <div className="text-sm text-slate-500">
+                          {w.opsCount} operación(es) · Total de la semana{" "}
+                          <span className="font-bold text-slate-800">{fmtMoney(w.totalMicro)}</span>
                         </div>
                       </div>
-                      <OpsTable ops={d.ops} />
+                      {w.days.map((d) =>
+                        d.ops.length > 0 ? (
+                          <div key={d.date}>
+                            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 px-4 py-2">
+                              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                                {dayName(d.date)} · {fmtFullDate(d.date)}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                Total día{" "}
+                                <span className="font-bold text-slate-700">{fmtMoney(d.totalMicro)}</span>
+                              </div>
+                            </div>
+                            <OpsTable ops={d.ops} />
+                          </div>
+                        ) : (
+                          <div
+                            key={d.date}
+                            className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 px-4 py-2"
+                          >
+                            <div className="text-xs font-medium uppercase tracking-wide text-slate-300">
+                              {dayName(d.date)} · {fmtFullDate(d.date)}
+                            </div>
+                            <div className="text-xs text-slate-300">Sin mano de obra</div>
+                          </div>
+                        ),
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 px-4 py-2.5">
+                      <div className="font-medium text-slate-300">
+                        Semana del {dayShort(w.weekStart)} al {dayShort(w.weekEnd)}
+                      </div>
+                      <div className="text-sm text-slate-300">Sin mano de obra · $0.00</div>
                     </div>
-                  ))}
+                  )}
                 </div>
               ))}
             </div>
