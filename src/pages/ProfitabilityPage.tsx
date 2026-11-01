@@ -187,7 +187,7 @@ export function ProfitabilityPage() {
         )}
       </div>
 
-      <div className="mb-5 card overflow-hidden print-area">
+      <div className="mb-5 card overflow-hidden overflow-x-auto print-area">
         <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
           Resultado por día
         </div>
@@ -253,7 +253,7 @@ export function ProfitabilityPage() {
         </div>
       </div>
 
-      <div className="card overflow-hidden print-area">
+      <div className="card overflow-hidden overflow-x-auto print-area">
         <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
           Rentabilidad por producto
         </div>

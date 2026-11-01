@@ -126,12 +126,31 @@ export function Kpi({
           ? "text-slate-500"
           : "text-slate-900";
   return (
-    <div className="card p-4">
+    <div className="card min-w-0 p-4">
       <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={`${big ? "text-2xl" : "text-xl"} font-bold ${color}`}>{value}</div>
+      <div
+        className={`min-w-0 select-none overflow-hidden font-bold tabular-nums whitespace-nowrap text-ellipsis ${valueSizeClass(value, big)} ${color}`}
+      >
+        {value}
+      </div>
       {sub && <div className="text-xs text-slate-400">{sub}</div>}
     </div>
   );
+}
+
+/**
+ * Tamaño de fuente de un valor largo (montos, cifras) según su longitud:
+ * los valores grandes bajan de tamaño en lugar de romper la tarjeta.
+ */
+export function valueSizeClass(value: string, big = false): string {
+  const ladder = big
+    ? ["text-2xl", "text-xl", "text-lg", "text-base"]
+    : ["text-xl", "text-lg", "text-base", "text-sm"];
+  const len = value.length;
+  if (len <= 9) return ladder[0];
+  if (len <= 13) return ladder[1];
+  if (len <= 17) return ladder[2];
+  return ladder[3];
 }
 
 /** Porcentaje con 1 decimal (ej. 23.5%). */

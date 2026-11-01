@@ -186,7 +186,7 @@ export function ProductsPage() {
         <span className="text-sm text-slate-500">{list.total} producto(s)</span>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden overflow-x-auto">
         <table className="table-ny inventory-table">
           <thead>
             <tr>
@@ -432,7 +432,8 @@ export function ProductsPage() {
           </div>
 
           <h3 className="mb-2 text-sm font-bold text-slate-700">Historial de precios</h3>
-          <table className="table-ny mb-5">
+          <div className="overflow-x-auto">
+            <table className="table-ny mb-5">
             <thead>
               <tr>
                 <th>Desde</th>
@@ -449,7 +450,8 @@ export function ProductsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
           {detail.priceHistoryTotal > detail.priceHistory.length && (
             <p className="-mt-4 mb-5 text-xs text-slate-500">
               Mostrando los {detail.priceHistory.length} precios más recientes de {detail.priceHistoryTotal}.
@@ -457,7 +459,8 @@ export function ProductsPage() {
           )}
 
           <h3 className="mb-2 text-sm font-bold text-slate-700">Lotes (PEPS)</h3>
-          <table className="table-ny mb-5">
+          <div className="overflow-x-auto">
+            <table className="table-ny mb-5">
             <thead>
               <tr>
                 <th>Fecha</th>
@@ -485,7 +488,8 @@ export function ProductsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
           {detail.lotsTotal > detail.lots.length && (
             <p className="-mt-4 mb-5 text-xs text-slate-500">
               Mostrando los {detail.lots.length} lotes más antiguos de {detail.lotsTotal} pendientes; los
@@ -494,7 +498,8 @@ export function ProductsPage() {
           )}
 
           <h3 className="mb-2 text-sm font-bold text-slate-700">Movimientos recientes</h3>
-          <table className="table-ny">
+          <div className="overflow-x-auto">
+            <table className="table-ny">
             <thead>
               <tr>
                 <th>Fecha</th>
@@ -525,7 +530,8 @@ export function ProductsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
           {detail.movements.length > 0 && (
             <p className="mt-1 text-xs text-slate-500">
               Mostrando los últimos {detail.movements.length} movimientos; el historial completo está en

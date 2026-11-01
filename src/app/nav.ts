@@ -10,7 +10,6 @@ import {
   DollarSign,
   Factory,
   FlaskConical,
-  Gauge,
   Home,
   PackageCheck,
   Percent,
@@ -64,7 +63,6 @@ export const NAV: NavGroup[] = [
       { label: "Recetas", path: "/produccion/recetas", icon: BookOpen },
       { label: "Producciones", path: "/produccion/producciones", icon: Factory },
       { label: "Empaquetado", path: "/operaciones/transformacion", icon: Repeat },
-      { label: "Rendimientos", path: "/produccion/rendimientos", icon: Gauge },
     ],
   },
   {

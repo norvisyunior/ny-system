@@ -78,6 +78,13 @@
       "when": 1793328000000,
       "tag": "0010_smooth_steel",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793546553359,
+      "tag": "0011_cuddly_elektra",
+      "breakpoints": true
     }
   ]
 }

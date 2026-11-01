@@ -137,7 +137,7 @@ export function UnitsPage() {
           <UnitConverter units={units} />
         </div>
       )}
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden overflow-x-auto">
         <table className="table-ny">
           <thead>
             <tr>

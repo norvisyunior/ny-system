@@ -4,7 +4,7 @@ import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { Pager } from "../components/Pager";
 import { usePaged } from "../hooks/usePaged";
-import { Badge, DayFilter, ErrorAlert, FlowGuide, Modal, fmtMoney, todayISO } from "../components/ui";
+import { Badge, DayFilter, ErrorAlert, FlowGuide, Kpi, Modal, fmtMoney, todayISO } from "../components/ui";
 import { microToDecimalTrim } from "@shared/money";
 
 type ItemType = "raw" | "mass" | "product";
@@ -238,7 +238,8 @@ export function ClosingsPage() {
                 </button>
               </div>
               {detail.notes && <p className="mb-3 text-sm text-slate-600">{detail.notes}</p>}
-              <table className="table-ny">
+              <div className="max-h-64 overflow-y-auto overflow-x-auto">
+                <table className="table-ny">
                 <thead>
                   <tr>
                     <th>Tipo</th>
@@ -275,7 +276,8 @@ export function ClosingsPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           ) : (
             <div className="card p-5">
@@ -382,7 +384,7 @@ export function ClosingsPage() {
 
       <div className="mt-6">
         <h3 className="mb-2 text-sm font-bold text-slate-700">Cierres anteriores</h3>
-        <div className="card overflow-hidden">
+        <div className="card overflow-hidden overflow-x-auto">
           <table className="table-ny">
             <thead>
               <tr>
@@ -479,13 +481,5 @@ function StatCard({
   tone?: "green" | "red";
   big?: boolean;
 }) {
-  const color =
-    tone === "red" ? "text-red-600" : tone === "green" ? "text-emerald-700" : muted ? "text-slate-500" : "text-slate-900";
-  return (
-    <div className="card p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={`${big ? "text-2xl" : "text-xl"} font-bold ${color}`}>{fmtMoney(value)}</div>
-      {sub && <div className="text-xs text-slate-400">{sub}</div>}
-    </div>
-  );
+  return <Kpi label={label} value={fmtMoney(value)} sub={sub} muted={muted} tone={tone} big={big} />;
 }

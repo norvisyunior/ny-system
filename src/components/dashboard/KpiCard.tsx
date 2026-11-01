@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { valueSizeClass } from "../ui";
 
 export type KpiTone = "sales" | "costs" | "gross" | "expenses" | "net";
 
@@ -50,7 +51,7 @@ export function KpiCard({
         </div>
       </div>
       <div
-        className="whitespace-nowrap text-xl font-bold leading-tight tabular-nums 2xl:text-2xl"
+        className={`min-w-0 overflow-hidden whitespace-nowrap text-ellipsis font-bold leading-tight tabular-nums ${valueSizeClass(value, true)}`}
         style={{ color: t.valueColor }}
       >
         {value}

@@ -581,7 +581,7 @@ export function RecipesPage() {
         <span className="text-sm text-slate-500">{list.total} receta(s)</span>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden overflow-x-auto">
         <table className="table-ny">
           <thead>
             <tr>

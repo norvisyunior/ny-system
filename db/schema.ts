@@ -454,6 +454,7 @@ export const transformations = sqliteTable(
     laborCostMicro: integer("labor_cost_micro").notNull().default(0),
     totalCostMicro: integer("total_cost_micro").notNull().default(0),
     status: text("status").notNull().default("confirmada"), // confirmada | anulada
+    responsible: text("responsible"),
     notes: text("notes"),
     clientToken: text("client_token"),
     createdAt: CREATED_AT(),
@@ -545,6 +546,7 @@ export const rawElaborations = sqliteTable(
     totalCostMicro: integer("total_cost_micro").notNull().default(0),
     unitCostMicro: integer("unit_cost_micro").notNull().default(0),
     status: text("status").notNull().default("confirmada"), // confirmada | anulada
+    responsible: text("responsible"),
     notes: text("notes"),
     clientToken: text("client_token"),
     createdAt: CREATED_AT(),

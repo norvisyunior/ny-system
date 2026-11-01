@@ -258,7 +258,7 @@ export function SalesPage() {
               ? "Mostrando las ventas del día seleccionado. Para ver otro día, cámbielo en el filtro de la derecha."
               : "Mostrando todas las ventas registradas."}
           </p>
-          <div className="card overflow-hidden">
+          <div className="card overflow-hidden overflow-x-auto">
             <table className="table-ny">
               <thead>
                 <tr>
@@ -410,10 +410,11 @@ export function SalesPage() {
             </button>
           </div>
 
-          <table className="table-ny">
-            <thead>
-              <tr>
-                <th style={{ width: "34%" }}>Producto</th>
+          <div className="overflow-x-auto">
+            <table className="table-ny">
+              <thead>
+                <tr>
+                  <th style={{ width: "34%" }}>Producto</th>
                 <th style={{ width: "14%" }}>Cantidad</th>
                 <th style={{ width: "16%" }}>Precio unit.</th>
                 <th style={{ width: "12%" }}>Stock</th>
@@ -489,7 +490,8 @@ export function SalesPage() {
                 <td></td>
               </tr>
             </tfoot>
-          </table>
+            </table>
+          </div>
 
           <div className="mt-4 flex justify-end gap-2">
             <button className="btn btn-secondary" onClick={() => setView("list")}>
@@ -533,10 +535,11 @@ export function SalesPage() {
             </div>
           </div>
 
-          <table className="table-ny">
-            <thead>
-              <tr>
-                <th>Producto</th>
+          <div className="overflow-x-auto">
+            <table className="table-ny">
+              <thead>
+                <tr>
+                  <th>Producto</th>
                 <th className="num">Cantidad</th>
                 <th className="num">Precio unit.</th>
                 <th className="num">Importe</th>
@@ -547,7 +550,7 @@ export function SalesPage() {
             <tbody>
               {detail.items.map((it) => (
                 <tr key={it.id}>
-                  <td>{it.productName}</td>
+                  <td className="max-w-[200px] truncate" title={it.productName}>{it.productName}</td>
                   <td className="num">{fmtQty(it.qtyMicro, it.saleUnitId)}</td>
                   <td className="num">{fmtMoney(it.unitPriceMicro)}</td>
                   <td className="num font-semibold">{fmtMoney(it.lineTotalMicro)}</td>
@@ -580,7 +583,8 @@ export function SalesPage() {
                 <td></td>
               </tr>
             </tfoot>
-          </table>
+            </table>
+          </div>
 
           {detail.status === "confirmada" && (
             <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 p-4">

@@ -33,6 +33,8 @@ export const elaborationInput = z.object({
   // tarifa × cantidad a elaborar. Editable por operación.
   laborCost: decMicro().optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
+  // Persona a cargo del lote; aparece en el informe de Mano de obra.
+  responsible: z.string().trim().max(120).optional().nullable(),
   // Token de idempotencia: reenvíos (doble clic) no duplican la operación.
   clientToken: z.string().trim().min(8).max(64).optional().nullable(),
   items: z
@@ -209,6 +211,7 @@ export function confirmElaboration(
         laborCostMicro,
         totalCostMicro: 0,
         unitCostMicro: 0,
+        responsible: input.responsible ?? null,
         notes: input.notes ?? null,
         clientToken: input.clientToken ?? null,
       })
@@ -352,6 +355,7 @@ export interface ElaborationListRow {
   unitCostMicro: number;
   status: string;
   notes: string | null;
+  responsible: string | null;
 }
 
 export function listElaborations(
@@ -397,6 +401,7 @@ export function listElaborations(
     unitCostMicro: rawElaborations.unitCostMicro,
     status: rawElaborations.status,
     notes: rawElaborations.notes,
+    responsible: rawElaborations.responsible,
   };
 
   const base = db
@@ -436,6 +441,7 @@ export function getElaborationDetail(db: DB, id: number) {
       unitCostMicro: rawElaborations.unitCostMicro,
       status: rawElaborations.status,
       notes: rawElaborations.notes,
+      responsible: rawElaborations.responsible,
       cancelledAt: rawElaborations.cancelledAt,
       cancelReason: rawElaborations.cancelReason,
       createdAt: rawElaborations.createdAt,

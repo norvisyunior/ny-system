@@ -262,7 +262,7 @@ export function CostosPage() {
         </table>
       </div>
 
-      <div className="mb-5 card overflow-hidden">
+      <div className="mb-5 card overflow-hidden overflow-x-auto">
         <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
           Compras de materias primas
         </div>
@@ -311,7 +311,7 @@ export function CostosPage() {
         </div>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden overflow-x-auto">
         <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
           Producción de masas
         </div>

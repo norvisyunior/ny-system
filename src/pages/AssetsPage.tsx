@@ -220,7 +220,7 @@ export function AssetsPage() {
         </div>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden overflow-x-auto">
         <table className="table-ny">
           <thead>
             <tr>
@@ -487,7 +487,8 @@ export function AssetsPage() {
           )}
 
           <h3 className="mb-2 mt-5 text-sm font-bold text-slate-700">Depreciaciones asentadas</h3>
-          <table className="table-ny">
+          <div className="overflow-x-auto">
+            <table className="table-ny">
             <thead>
               <tr>
                 <th>Periodo</th>
@@ -521,7 +522,8 @@ export function AssetsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
 
           <div className="mt-4 flex justify-end gap-2">
             {detail.asset.status === "en_uso" && (

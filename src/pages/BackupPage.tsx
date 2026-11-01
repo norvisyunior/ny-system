@@ -249,7 +249,7 @@ export function BackupPage() {
         </div>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden overflow-x-auto">
         <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
           Respaldos disponibles ({backups.total})
         </div>

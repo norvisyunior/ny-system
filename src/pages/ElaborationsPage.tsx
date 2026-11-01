@@ -47,6 +47,7 @@ interface ElaborationRow {
   unitCostMicro: number;
   status: string;
   notes: string | null;
+  responsible: string | null;
 }
 
 interface ElaborationDetail {
@@ -62,6 +63,7 @@ interface ElaborationDetail {
   unitCostMicro: number;
   status: string;
   notes: string | null;
+  responsible: string | null;
   cancelledAt: string | null;
   cancelReason: string | null;
   lines: {
@@ -185,6 +187,7 @@ export function ElaborationsPage() {
     outputMaterialId: "",
     outputQty: "",
     laborCost: "",
+    responsible: "",
     notes: "",
   });
   const [lines, setLines] = useState<LineRow[]>([newLine()]);
@@ -376,6 +379,7 @@ export function ElaborationsPage() {
       outputMaterialId: "",
       outputQty: "",
       laborCost: "",
+      responsible: "",
       notes: "",
     });
     setLines([newLine()]);
@@ -467,6 +471,7 @@ export function ElaborationsPage() {
         outputMaterialId: Number(form.outputMaterialId),
         outputQty: form.outputQty.trim().replace(",", "."),
         laborCost: form.laborCost.trim() === "" ? null : form.laborCost.trim().replace(",", "."),
+        responsible: form.responsible.trim() || null,
         notes: form.notes || null,
         clientToken,
         items: completeLines.map((l) => ({
@@ -568,13 +573,14 @@ export function ElaborationsPage() {
               ? "Mostrando las elaboraciones del día seleccionado. Para ver otro día, cámbielo en el filtro de la derecha."
               : "Mostrando todas las elaboraciones registradas."}
           </p>
-          <div className="card overflow-hidden">
+          <div className="card overflow-hidden overflow-x-auto">
             <table className="table-ny">
               <thead>
                 <tr>
                   <th>#</th>
                   <th>Fecha</th>
                   <th>Material resultado</th>
+                  <th>Responsable</th>
                   <th className="num">Cantidad producida</th>
                   <th className="num">Materiales</th>
                   <th className="num">Mano de obra</th>
@@ -587,7 +593,7 @@ export function ElaborationsPage() {
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="py-8 text-center text-slate-400">
+                    <td colSpan={11} className="py-8 text-center text-slate-400">
                       {list.loading ? "Cargando…" : "Sin elaboraciones registradas."}
                     </td>
                   </tr>
@@ -597,6 +603,7 @@ export function ElaborationsPage() {
                     <td className="font-mono font-semibold">{fmtDocNumber(r.number)}</td>
                     <td>{r.elaborationDate}</td>
                     <td className="font-medium">{r.outputMaterialName}</td>
+                    <td className="text-slate-600">{r.responsible ?? "—"}</td>
                     <td className="num font-semibold">
                       {fmtQty(r.outputQtyMicro, r.outputUnitId)}
                     </td>
@@ -703,6 +710,17 @@ export function ElaborationsPage() {
           </div>
 
           <div className="mt-3 flex items-end gap-3">
+            <div className="field w-64">
+              <label>Responsable</label>
+              <input
+                placeholder="Trabajador a cargo (opcional)"
+                value={form.responsible}
+                onChange={(e) => setForm({ ...form, responsible: e.target.value })}
+              />
+              <span className="mt-1 block text-[11px] text-slate-500">
+                Se muestra en el informe de Mano de obra.
+              </span>
+            </div>
             <div className="field flex-1">
               <label>Notas</label>
               <input
@@ -954,7 +972,8 @@ export function ElaborationsPage() {
           <h3 className="mb-2 text-sm font-bold text-slate-700">
             Consumo de materias primas (PEPS)
           </h3>
-          <table className="table-ny mb-4">
+          <div className="overflow-x-auto">
+            <table className="table-ny mb-4">
             <thead>
               <tr>
                 <th>Material</th>
@@ -1004,7 +1023,8 @@ export function ElaborationsPage() {
                 </td>
               </tr>
             </tfoot>
-          </table>
+            </table>
+          </div>
           {detail.notes && (
             <p className="mb-4 text-xs text-slate-500">Notas: {detail.notes}</p>
           )}

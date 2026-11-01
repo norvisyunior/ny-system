@@ -181,6 +181,7 @@ export function TransformationsPage() {
     massId: "",
     massQty: "",
     recipeVersionId: "",
+    responsible: "",
     notes: "",
     laborCost: "",
     outputs: [{ productId: "", qty: "" }] as OutputRow[],
@@ -297,6 +298,7 @@ export function TransformationsPage() {
       massId: "",
       massQty: "",
       recipeVersionId: "",
+      responsible: "",
       notes: "",
       laborCost: "",
       outputs: [{ productId: "", qty: "" }],
@@ -322,6 +324,7 @@ export function TransformationsPage() {
       massId: recipe.massId != null ? String(recipe.massId) : "",
       massQty: searchParams.get("massQty") ?? "",
       recipeVersionId: rv,
+      responsible: "",
       notes: "",
       laborCost: "",
       outputs: [
@@ -368,8 +371,9 @@ export function TransformationsPage() {
         massId: Number(form.massId),
         massQty: form.massQty,
         recipeVersionId: form.recipeVersionId ? Number(form.recipeVersionId) : null,
-        laborCost: form.laborCost.trim() === "" ? null : form.laborCost.trim().replace(",", "."),
-        notes: form.notes || null,
+      laborCost: form.laborCost.trim() === "" ? null : form.laborCost.trim().replace(",", "."),
+      responsible: form.responsible.trim() || null,
+      notes: form.notes || null,
         clientToken,
         outputs: form.outputs
           .filter((o) => o.productId && o.qty)
@@ -457,7 +461,7 @@ export function TransformationsPage() {
               ? "Mostrando las terminaciones del día seleccionado. Para ver otro día, cámbielo en el filtro de la derecha."
               : "Mostrando todas las terminaciones registradas."}
           </p>
-          <div className="card overflow-hidden">
+          <div className="card overflow-hidden overflow-x-auto">
             <table className="table-ny">
               <thead>
                 <tr>
@@ -622,10 +626,11 @@ export function TransformationsPage() {
             )}
           </div>
 
-          <table className="table-ny">
-            <thead>
-              <tr>
-                <th style={{ width: "60%" }}>Producto</th>
+          <div className="overflow-x-auto">
+            <table className="table-ny">
+              <thead>
+                <tr>
+                  <th style={{ width: "60%" }}>Producto</th>
                 <th>Paquetes reales obtenidos</th>
                 <th></th>
               </tr>
@@ -682,7 +687,8 @@ export function TransformationsPage() {
                 );
               })}
             </tbody>
-          </table>
+            </table>
+          </div>
 
           {expectedMicro != null && (
             <div className="mt-4 grid grid-cols-3 gap-4 rounded-md bg-slate-50 p-4 text-sm">
@@ -778,7 +784,18 @@ export function TransformationsPage() {
                 Se precarga como tarifa × unidades individuales reales. Vacío = usa la tarifa configurada; 0 = sin costo.
               </p>
             </div>
-            <div className="field">
+            <div className="field w-64">
+              <label>Responsable</label>
+              <input
+                placeholder="Trabajador a cargo (opcional)"
+                value={form.responsible}
+                onChange={(e) => setForm({ ...form, responsible: e.target.value })}
+              />
+              <p className="mt-1 text-[11px] leading-snug text-slate-400">
+                Se muestra en el informe de Mano de obra.
+              </p>
+            </div>
+            <div className="field flex-1">
               <label>Notas</label>
               <input
                 value={form.notes}
@@ -879,7 +896,8 @@ export function TransformationsPage() {
           </div>
 
           <h3 className="mb-2 text-sm font-bold text-slate-700">Productos generados</h3>
-          <table className="table-ny mb-4">
+          <div className="overflow-x-auto">
+            <table className="table-ny mb-4">
             <thead>
               <tr>
                 <th>Producto</th>
@@ -916,14 +934,16 @@ export function TransformationsPage() {
                 <td></td>
               </tr>
             </tfoot>
-          </table>
+            </table>
+          </div>
 
           {detail.materials.length > 0 && (
             <>
               <h3 className="mb-2 text-sm font-bold text-slate-700">
                 Materiales de empaque consumidos (fase paquete)
               </h3>
-              <table className="table-ny mb-4">
+              <div className="overflow-x-auto">
+                <table className="table-ny mb-4">
                 <thead>
                   <tr>
                     <th>Material</th>
@@ -942,12 +962,14 @@ export function TransformationsPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </>
           )}
 
           <h3 className="mb-2 text-sm font-bold text-slate-700">Lotes de masa consumidos</h3>
-          <table className="table-ny mb-4">
+          <div className="overflow-x-auto">
+            <table className="table-ny mb-4">
             <thead>
               <tr>
                 <th>Fecha del lote</th>
@@ -966,7 +988,8 @@ export function TransformationsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
 
           {detail.status === "confirmada" && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-4">

@@ -42,6 +42,8 @@ export const transformationInput = z.object({
   recipeVersionId: z.number().int().positive().optional().nullable(),
   planId: z.number().int().positive().optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
+  // Persona a cargo de la terminación; aparece en el informe de Mano de obra.
+  responsible: z.string().trim().max(120).optional().nullable(),
   // Mano de obra de terminación ($ total). Ausente → tarifa por unidad
   // individual configurada × (paquetes reales × unidades por paquete).
   laborCost: decMicro().optional().nullable(),
@@ -376,6 +378,7 @@ export function confirmTransformation(
         expectedPackagesMicro,
         deviationMicro,
         totalCostMicro: 0,
+        responsible: input.responsible ?? null,
         notes: input.notes ?? null,
         clientToken: input.clientToken ?? null,
       })
@@ -600,6 +603,7 @@ export interface TransformationListRow {
   totalCostMicro: number;
   laborCostMicro: number;
   status: string;
+  responsible: string | null;
 }
 
 export function listTransformations(
@@ -641,6 +645,7 @@ export function listTransformations(
       totalCostMicro: transformations.totalCostMicro,
       laborCostMicro: transformations.laborCostMicro,
       status: transformations.status,
+      responsible: transformations.responsible,
       expectedPackagesMicro: transformations.expectedPackagesMicro,
       deviationMicro: transformations.deviationMicro,
       planId: transformations.planId,
@@ -696,6 +701,7 @@ export function getTransformationDetail(db: DBOrTx, id: number) {
       totalCostMicro: transformations.totalCostMicro,
       laborCostMicro: transformations.laborCostMicro,
       status: transformations.status,
+      responsible: transformations.responsible,
       notes: transformations.notes,
       cancelledAt: transformations.cancelledAt,
       cancelReason: transformations.cancelReason,

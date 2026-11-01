@@ -12,7 +12,6 @@ import { MassesPage } from "./pages/MassesPage";
 import { RecipesPage } from "./pages/RecipesPage";
 import { CostSheetsPage } from "./pages/CostSheetsPage";
 import { ProductionsPage } from "./pages/ProductionsPage";
-import { YieldsPage } from "./pages/YieldsPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { TransformationsPage } from "./pages/TransformationsPage";
 import { SalesPage } from "./pages/SalesPage";
@@ -51,7 +50,6 @@ export default function App() {
           <Route path="/produccion/recetas" element={<RecipesPage />} />
           <Route path="/produccion/fichas-costo" element={<CostSheetsPage />} />
           <Route path="/produccion/producciones" element={<ProductionsPage />} />
-          <Route path="/produccion/rendimientos" element={<YieldsPage />} />
 
           <Route path="/finanzas/ingresos" element={<IngresosPage />} />
           <Route path="/finanzas/costos" element={<CostosPage />} />

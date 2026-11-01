@@ -174,6 +174,7 @@ export function laborSummary(db: DBOrTx, from: string, to: string): LaborSummary
       materialName: rawMaterials.name,
       unitId: rawMaterials.unitId,
       outputQtyMicro: rawElaborations.outputQtyMicro,
+      responsible: rawElaborations.responsible,
       laborCostMicro: rawElaborations.laborCostMicro,
     })
     .from(rawElaborations)
@@ -198,7 +199,7 @@ export function laborSummary(db: DBOrTx, from: string, to: string): LaborSummary
       date: e.date,
       name: `Elaboración de ${e.materialName}`,
       detail: `${qty} ${e.unitId} de ${e.materialName}`,
-      responsible: null,
+      responsible: e.responsible ?? null,
       laborCostMicro: Math.trunc(Number(e.laborCostMicro ?? 0)),
     });
   }
@@ -210,6 +211,7 @@ export function laborSummary(db: DBOrTx, from: string, to: string): LaborSummary
       date: transformations.transformDate,
       massName: masses.name,
       realPackagesMicro: sql<number>`COALESCE((SELECT SUM(tr.qty_micro) FROM transformation_outputs tr WHERE tr.transformation_id = ${transformations.id}), 0)`,
+      responsible: transformations.responsible,
       laborCostMicro: transformations.laborCostMicro,
     })
     .from(transformations)
@@ -234,7 +236,7 @@ export function laborSummary(db: DBOrTx, from: string, to: string): LaborSummary
       date: t.date,
       name: `Terminación de ${t.massName}`,
       detail: `${pkgs} paquete(s) obtenido(s) de ${t.massName}`,
-      responsible: null,
+      responsible: t.responsible ?? null,
       laborCostMicro: Math.trunc(Number(t.laborCostMicro ?? 0)),
     });
   }

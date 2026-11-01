@@ -77,6 +77,8 @@ body {
 .table-ny .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  /* Los montos largos no parten la celda: fuerzan scroll del contenedor. */
+  white-space: nowrap;
 }
 .table-ny .center {
   text-align: center;

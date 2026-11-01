@@ -164,7 +164,7 @@ export function ExpensesPage() {
               ? "Mostrando los gastos del día seleccionado. Para ver otro día, cámbielo en el filtro de la derecha."
               : "Mostrando todos los gastos registrados."}
           </p>
-          <div className="card overflow-hidden">
+          <div className="card overflow-hidden overflow-x-auto">
             <table className="table-ny">
               <thead>
                 <tr>
@@ -190,7 +190,7 @@ export function ExpensesPage() {
                   <tr key={r.id}>
                     <td>{r.expenseDate}</td>
                     <td className="font-semibold">{r.category}</td>
-                    <td>{r.description}</td>
+                    <td className="max-w-[220px] truncate" title={r.description}>{r.description}</td>
                     <td>{PAYMENT_LABELS[r.paymentMethod] ?? r.paymentMethod}</td>
                     <td className="text-slate-500">{r.responsible ?? "—"}</td>
                     <td className="num font-semibold">{fmtMoney(r.amountMicro)}</td>

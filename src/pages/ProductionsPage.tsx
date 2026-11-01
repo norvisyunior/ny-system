@@ -389,7 +389,7 @@ export function ProductionsPage() {
               ? "Mostrando las elaboraciones del día seleccionado. Para ver otro día, cámbielo en el filtro de la derecha."
               : "Mostrando todas las elaboraciones registradas."}
           </p>
-          <div className="card overflow-hidden">
+          <div className="card overflow-hidden overflow-x-auto">
             <table className="table-ny">
               <thead>
                 <tr>
@@ -619,7 +619,8 @@ export function ProductionsPage() {
           <h3 className="mb-2 text-sm font-bold text-slate-700">
             Consumo de materias primas (fase masa)
           </h3>
-          <table className="table-ny mb-4">
+          <div className="overflow-x-auto">
+            <table className="table-ny mb-4">
             <thead>
               <tr>
                 <th>Material</th>
@@ -654,7 +655,8 @@ export function ProductionsPage() {
                 <td className="num font-bold">{fmtMoney(detail.totalCostMicro)}</td>
               </tr>
             </tfoot>
-          </table>
+            </table>
+          </div>
           <p className="mb-4 text-xs text-slate-500">
             El costo total incluye la mano de obra de elaboración. Los materiales de fase paquete
             (empaques, etiquetas, etc.) se consumen al terminar la producción, en la transformación.

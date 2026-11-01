@@ -169,7 +169,8 @@ function kindBadgeClass(kind: LaborKind): string {
 
 function OpsTable({ ops }: { ops: LaborOpRow[] }) {
   return (
-    <table className="table-ny">
+    <div className="overflow-x-auto">
+      <table className="table-ny">
       <thead>
         <tr>
           <th>Nº</th>
@@ -198,8 +199,8 @@ function OpsTable({ ops }: { ops: LaborOpRow[] }) {
                 {KIND_LABEL[o.kind]}
               </span>
             </td>
-            <td className="font-semibold">{o.name}</td>
-            <td className="text-slate-500">{o.detail}</td>
+            <td className="max-w-[200px] truncate font-semibold" title={o.name}>{o.name}</td>
+            <td className="max-w-[260px] truncate text-slate-500" title={o.detail ?? ""}>{o.detail}</td>
             <td className="text-slate-500">{o.responsible ?? "—"}</td>
             <td
               className={`num ${o.laborCostMicro > 0 ? "font-semibold" : "text-slate-400"}`}
@@ -209,7 +210,8 @@ function OpsTable({ ops }: { ops: LaborOpRow[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+      </table>
+    </div>
   );
 }
 

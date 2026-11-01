@@ -336,7 +336,7 @@ export function PurchasesPage() {
               ? "Mostrando las compras del día seleccionado. Para ver otro día, cámbielo en el filtro de la derecha."
               : "Mostrando todas las compras registradas."}
           </p>
-          <div className="card overflow-hidden">
+          <div className="card overflow-hidden overflow-x-auto">
             <table className="table-ny">
               <thead>
                 <tr>
@@ -362,7 +362,7 @@ export function PurchasesPage() {
                   <tr key={r.id}>
                     <td className="font-mono font-semibold">{fmtDocNumber(r.number)}</td>
                     <td>{r.purchaseDate}</td>
-                    <td>{r.supplierName}</td>
+                    <td className="max-w-[200px] truncate" title={r.supplierName}>{r.supplierName}</td>
                     <td>{r.docNumber ?? "—"}</td>
                     <td className="num">{r.itemsCount}</td>
                     <td className="num font-semibold">{fmtMoney(r.totalMicro)}</td>
@@ -524,10 +524,11 @@ export function PurchasesPage() {
             </div>
           )}
 
-          <table className="table-ny">
-            <thead>
-              <tr>
-                <th style={{ width: "32%" }}>Materia prima / insumo</th>
+          <div className="overflow-x-auto">
+            <table className="table-ny">
+              <thead>
+                <tr>
+                  <th style={{ width: "32%" }}>Materia prima / insumo</th>
                 <th style={{ width: "14%" }}>Cantidad</th>
                 <th style={{ width: "14%" }}>Unidad</th>
                 <th style={{ width: "18%" }}>Precio unitario</th>
@@ -623,7 +624,8 @@ export function PurchasesPage() {
                 <td></td>
               </tr>
             </tfoot>
-          </table>
+            </table>
+          </div>
 
           <div className="mt-4 flex justify-end gap-2">
             <button className="btn btn-secondary" onClick={() => setView("list")}>
@@ -666,10 +668,11 @@ export function PurchasesPage() {
             </div>
           </div>
 
-          <table className="table-ny">
-            <thead>
-              <tr>
-                <th>Material / insumo</th>
+          <div className="overflow-x-auto">
+            <table className="table-ny">
+              <thead>
+                <tr>
+                  <th>Material / insumo</th>
                 <th className="num">Cantidad</th>
                 <th className="num">Precio unit.</th>
                 <th className="num">Importe</th>
@@ -702,7 +705,8 @@ export function PurchasesPage() {
                 <td className="num font-bold">{fmtMoney(detail.totalMicro)}</td>
               </tr>
             </tfoot>
-          </table>
+            </table>
+          </div>
 
           {detail.status === "confirmada" && (
             <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 p-4">

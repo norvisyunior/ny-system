@@ -230,7 +230,7 @@ export function SuppliesPage() {
         <span className="text-sm text-slate-500">{list.total} registro(s)</span>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden overflow-x-auto">
         <table className="table-ny inventory-table">
           <thead>
             <tr>
@@ -447,7 +447,7 @@ export function SuppliesPage() {
           <h3 className="mb-2 mt-5 text-sm font-bold text-slate-700">
             Lotes existentes (PEPS — primero sale el más antiguo)
           </h3>
-          <div className="max-h-48 overflow-y-auto rounded border border-slate-200">
+          <div className="max-h-48 overflow-y-auto overflow-x-auto rounded border border-slate-200">
             <table className="table-ny">
               <thead>
                 <tr>
@@ -490,7 +490,7 @@ export function SuppliesPage() {
           <h3 className="mb-2 mt-5 text-sm font-bold text-slate-700">
             Historial de precios de compra
           </h3>
-          <div className="max-h-48 overflow-y-auto rounded border border-slate-200">
+          <div className="max-h-48 overflow-y-auto overflow-x-auto rounded border border-slate-200">
             <table className="table-ny">
               <thead>
                 <tr>
@@ -533,7 +533,8 @@ export function SuppliesPage() {
           )}
 
           <h3 className="mb-2 mt-5 text-sm font-bold text-slate-700">Movimientos recientes</h3>
-          <table className="table-ny">
+          <div className="overflow-x-auto">
+            <table className="table-ny">
             <thead>
               <tr>
                 <th>Fecha</th>
@@ -564,7 +565,8 @@ export function SuppliesPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
           {detail.movementsTotal > detail.movements.length && (
             <p className="mt-1 text-xs text-slate-500">
               Mostrando los últimos {detail.movements.length} movimientos de {detail.movementsTotal};
