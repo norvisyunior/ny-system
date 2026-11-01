@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, raw } from "express";
 import { z } from "zod";
 import {
   auditKeepDaysSchema,
@@ -7,6 +7,7 @@ import {
   backupPath,
   createBackup,
   getAuditRetentionDays,
+  importBackup,
   listBackups,
   purgeAudit,
   restoreBackup,
@@ -39,6 +40,26 @@ backupsRouter.post("/", (req, res) => {
   });
   res.json({ ok: true, data: info });
 });
+
+// Importación de ficheros externos: cuerpo binario del .db (sin multipart).
+backupsRouter.post(
+  "/import",
+  raw({ type: "application/octet-stream", limit: "500mb" }),
+  (req, res) => {
+    const h = handle(req);
+    const buf: unknown = req.body;
+    if (!Buffer.isBuffer(buf) || buf.length === 0) {
+      throw domainError(
+        "Envíe el fichero .db en el cuerpo de la petición (application/octet-stream).",
+      );
+    }
+    const info = importBackup(buf);
+    backupAudit(h, "backup.import", `Fichero de base de datos importado: ${info.file}`, {
+      bytes: info.bytes,
+    });
+    res.json({ ok: true, data: info });
+  },
+);
 
 const keepDaysParam = z.coerce.number().pipe(auditKeepDaysSchema);
 

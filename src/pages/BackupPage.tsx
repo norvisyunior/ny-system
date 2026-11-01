@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
@@ -16,7 +16,7 @@ interface BackupRow {
   file: string;
   bytes: number;
   createdAt: string;
-  kind: "manual" | "auto" | "safety";
+  kind: "manual" | "auto" | "safety" | "imported";
 }
 
 interface AuditPreview {
@@ -31,6 +31,7 @@ const KIND_LABEL: Record<string, string> = {
   manual: "Manual",
   auto: "Automático",
   safety: "Pre-restauración",
+  imported: "Importado",
 };
 
 export function BackupPage() {
@@ -40,6 +41,9 @@ export function BackupPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<BackupRow | null>(null);
+  const [importTarget, setImportTarget] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [auditDays, setAuditDays] = useState("180");
   const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
   const [auditTarget, setAuditTarget] = useState<AuditPreview | null>(null);
@@ -93,6 +97,24 @@ export function BackupPage() {
       backups.reload();
     } catch (e) {
       toast.error((e as ApiError).message);
+    }
+  };
+
+  const runImport = async () => {
+    if (!importTarget) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const info = await api.postRaw<{ file: string; bytes: number }>("/backups/import", importTarget);
+      setImportTarget(null);
+      toast.success(`Fichero importado como ${info.file}. Aparece en la lista para restaurarlo.`, {
+        duration: 8000,
+      });
+      backups.reload();
+    } catch (e) {
+      toast.error((e as ApiError).message);
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -213,9 +235,33 @@ export function BackupPage() {
             respaldos son manuales; además se crea uno automático al mes (al iniciar la app o al
             cambiar el mes). Se conservan hasta 36 respaldos.
           </p>
-          <button className="btn btn-primary" onClick={createBackup}>
-            + Crear respaldo manual
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn btn-primary" onClick={createBackup}>
+              + Crear respaldo manual
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => importInputRef.current?.click()}
+              disabled={importing}
+            >
+              {importing ? "Importando…" : "+ Importar fichero de base de datos"}
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".db"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                setImportTarget(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Importar copia el fichero (validado) a la lista de respaldos; la restauración se hace
+            después desde la lista con su copia de seguridad previa.
+          </p>
         </div>
       </div>
 
@@ -277,7 +323,13 @@ export function BackupPage() {
               <tr key={b.file}>
                 <td className="font-mono text-xs">{b.file}</td>
                 <td>
-                  <Badge tone={b.kind === "auto" ? "amber" : "slate"}>{KIND_LABEL[b.kind]}</Badge>
+                  <Badge
+                    tone={
+                      b.kind === "auto" ? "amber" : b.kind === "imported" ? "blue" : "slate"
+                    }
+                  >
+                    {KIND_LABEL[b.kind]}
+                  </Badge>
                 </td>
                 <td>{new Date(b.createdAt).toLocaleString("es-ES")}</td>
                 <td className="num">{(b.bytes / 1024).toFixed(1)} KB</td>
@@ -336,6 +388,26 @@ export function BackupPage() {
             </button>
             <button className="btn btn-danger" onClick={restore}>
               Sí, restaurar
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {importTarget && (
+        <Modal title="Importar fichero de base de datos" onClose={() => setImportTarget(null)}>
+          <p className="mb-3 text-sm text-slate-600">
+            Va a validar e importar <strong>{importTarget.name}</strong> (
+            {(importTarget.size / 1024).toFixed(1)} KB). El sistema comprobará que sea una base de
+            datos válida del NY-SYSTEM y la copiará a la lista de respaldos. Para usarla deberá
+            restaurarla desde la lista (por seguridad, esa restauración pedirá confirmación y
+            guardará antes una copia del estado actual).
+          </p>
+          <div className="flex justify-end gap-2">
+            <button className="btn btn-secondary" onClick={() => setImportTarget(null)}>
+              Cancelar
+            </button>
+            <button className="btn btn-primary" onClick={runImport} disabled={importing}>
+              {importing ? "Importando…" : "Importar"}
             </button>
           </div>
         </Modal>

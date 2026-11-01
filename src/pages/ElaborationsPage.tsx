@@ -580,12 +580,8 @@ export function ElaborationsPage() {
                   <th>#</th>
                   <th>Fecha</th>
                   <th>Material resultado</th>
-                  <th>Responsable</th>
                   <th className="num">Cantidad producida</th>
-                  <th className="num">Materiales</th>
-                  <th className="num">Mano de obra</th>
                   <th className="num">Costo total</th>
-                  <th className="num">Costo unitario</th>
                   <th className="center">Estado</th>
                   <th></th>
                 </tr>
@@ -593,7 +589,7 @@ export function ElaborationsPage() {
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       {list.loading ? "Cargando…" : "Sin elaboraciones registradas."}
                     </td>
                   </tr>
@@ -603,18 +599,10 @@ export function ElaborationsPage() {
                     <td className="font-mono font-semibold">{fmtDocNumber(r.number)}</td>
                     <td>{r.elaborationDate}</td>
                     <td className="font-medium">{r.outputMaterialName}</td>
-                    <td className="text-slate-600">{r.responsible ?? "—"}</td>
                     <td className="num font-semibold">
                       {fmtQty(r.outputQtyMicro, r.outputUnitId)}
                     </td>
-                    <td className="num">{fmtMoney(r.totalCostMicro - r.laborCostMicro)}</td>
-                    <td className="num">
-                      {r.laborCostMicro > 0 ? fmtMoney(r.laborCostMicro) : "—"}
-                    </td>
                     <td className="num">{fmtMoney(r.totalCostMicro)}</td>
-                    <td className="num">
-                      {fmtMoney(r.unitCostMicro)}/{r.outputUnitId}
-                    </td>
                     <td className="center">
                       {r.status === "confirmada" ? (
                         <Badge tone="green">Confirmada</Badge>

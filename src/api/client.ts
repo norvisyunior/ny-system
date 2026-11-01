@@ -12,6 +12,23 @@ export class ApiError extends Error {
   }
 }
 
+function readEnvelope<T>(res: Response, payload: unknown): T {
+  if (!res.ok) {
+    const err = payload as { error?: string; code?: string; details?: unknown } | null;
+    throw new ApiError(
+      err?.error ?? "Ocurrió un error inesperado.",
+      res.status,
+      err?.code,
+      err?.details,
+    );
+  }
+  const env = payload as { ok?: boolean; data?: unknown } | null;
+  if (env && typeof env === "object" && env.ok === true && "data" in env) {
+    return env.data as T;
+  }
+  return payload as T;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
@@ -34,21 +51,33 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   } catch {
     // respuesta sin cuerpo
   }
+  return readEnvelope<T>(res, payload);
+}
 
-  if (!res.ok) {
-    const err = payload as { error?: string; code?: string; details?: unknown } | null;
+/** POST con cuerpo binario (p. ej. importar un fichero .db de respaldo). */
+async function requestRaw<T>(path: string, body: Blob): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body,
+    });
+  } catch {
     throw new ApiError(
-      err?.error ?? "Ocurrió un error inesperado.",
-      res.status,
-      err?.code,
-      err?.details,
+      "No se pudo conectar con el servicio local. Verifique que la aplicación esté en ejecución.",
+      0,
+      "NETWORK_ERROR",
     );
   }
-  const env = payload as { ok?: boolean; data?: unknown } | null;
-  if (env && typeof env === "object" && env.ok === true && "data" in env) {
-    return env.data as T;
+
+  let payload: unknown = null;
+  try {
+    payload = await res.json();
+  } catch {
+    // respuesta sin cuerpo
   }
-  return payload as T;
+  return readEnvelope<T>(res, payload);
 }
 
 /** Envoltura de listado paginado (?page en la URL). */
@@ -75,4 +104,5 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
   delete: <T>(path: string) => request<T>("DELETE", path),
+  postRaw: <T>(path: string, body: Blob) => requestRaw<T>(path, body),
 };

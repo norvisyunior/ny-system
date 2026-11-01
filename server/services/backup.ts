@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
@@ -27,7 +27,7 @@ export interface BackupInfo {
   file: string;
   bytes: number;
   createdAt: string;
-  kind: "manual" | "auto" | "safety";
+  kind: "manual" | "auto" | "safety" | "imported";
 }
 
 function ensureDir(): void {
@@ -48,7 +48,18 @@ export function backupPath(file: string): string {
 function kindOf(file: string): BackupInfo["kind"] {
   if (file.includes("-auto-")) return "auto";
   if (file.includes("-safety-")) return "safety";
+  if (file.includes("-imported-")) return "imported";
   return "manual";
+}
+
+function backupStamp(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}` +
+    `-${String(now.getMilliseconds()).padStart(3, "0")}`
+  );
 }
 
 function prune(): void {
@@ -64,17 +75,46 @@ function prune(): void {
 /** Copia consistente con VACUUM INTO (nunca se lee sobre el archivo vivo). */
 export function createBackup(handle: DbHandle, kind: "manual" | "auto" | "safety"): BackupInfo {
   ensureDir();
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const stamp =
-    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
-    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}` +
-    `-${String(now.getMilliseconds()).padStart(3, "0")}`;
-  const file = `ny-system-${kind}-${stamp}.db`;
+  const createdAt = new Date().toISOString();
+  const file = `ny-system-${kind}-${backupStamp()}.db`;
   const abs = path.join(BACKUP_DIR, file);
   handle.client.exec(`VACUUM INTO '${abs.replace(/'/g, "''")}'`);
   prune();
-  return { file, bytes: statSync(abs).size, createdAt: now.toISOString(), kind };
+  return { file, bytes: statSync(abs).size, createdAt, kind };
+}
+
+/**
+ * Importa un fichero .db externo (de otra PC, USB, etc.): lo copia a
+ * data/backups con nombre normalizado, tras validar integridad y esquema.
+ * Si no es válido se descarta y no queda pegado en el directorio.
+ */
+export function importBackup(buffer: Buffer): BackupInfo {
+  ensureDir();
+  const file = `ny-system-imported-${backupStamp()}.db`;
+  const abs = path.join(BACKUP_DIR, file);
+  writeFileSync(abs, buffer);
+  try {
+    let validation: BackupValidation;
+    try {
+      validation = validateDbFile(abs, file);
+    } catch {
+      throw conflictError(
+        "El fichero importado no es una base de datos SQLite legible.",
+        "INVALID_BACKUP",
+      );
+    }
+    if (!validation.ok) {
+      throw conflictError(
+        `El fichero importado no es una base de datos válida del sistema (integridad: ${validation.integrity}, tablas: ${validation.tables}).`,
+        "INVALID_BACKUP",
+      );
+    }
+  } catch (err) {
+    rmSync(abs, { force: true });
+    throw err;
+  }
+  prune();
+  return { file, bytes: statSync(abs).size, createdAt: new Date().toISOString(), kind: "imported" };
 }
 
 export function listBackups(): BackupInfo[] {
@@ -102,10 +142,8 @@ export interface BackupValidation {
   sizeBytes: number;
 }
 
-/** Valida integridad y que contenga el esquema mínimo antes de restaurar. */
-export function validateBackup(file: string): BackupValidation {
-  const abs = backupPath(file);
-  if (!existsSync(abs)) throw notFoundError(`Respaldo "${file}"`);
+/** Valida integridad y esquema mínimo de un fichero .db ya localizado en disco. */
+function validateDbFile(abs: string, label: string): BackupValidation {
   const check = new DatabaseSync(abs);
   try {
     const integrity = String(
@@ -119,17 +157,22 @@ export function validateBackup(file: string): BackupValidation {
     );
     let units = 0;
     try {
-      units = Number(
-        (check.prepare("SELECT COUNT(*) AS n FROM units").get() as { n: number }).n,
-      );
+      units = Number((check.prepare("SELECT COUNT(*) AS n FROM units").get() as { n: number }).n);
     } catch {
       units = 0;
     }
     const ok = integrity === "ok" && tables >= 20 && units > 0;
-    return { ok, file, integrity, tables, units, sizeBytes: statSync(abs).size };
+    return { ok, file: label, integrity, tables, units, sizeBytes: statSync(abs).size };
   } finally {
     check.close();
   }
+}
+
+/** Valida integridad y esquema mínimo de un respaldo del listado. */
+export function validateBackup(file: string): BackupValidation {
+  const abs = backupPath(file);
+  if (!existsSync(abs)) throw notFoundError(`Respaldo "${file}"`);
+  return validateDbFile(abs, file);
 }
 
 export interface RestoreResult {
