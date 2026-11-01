@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { ErrorAlert, Kpi, fmtMoney } from "../components/ui";
@@ -257,6 +257,28 @@ export function LaborPage() {
 
   const calendar = summary ? buildCalendar(summary, from, to) : { days: [], weeks: [] };
 
+  // Los indicadores siguen al toggle: Diario = solo el día "Hasta"; Semanal = su semana.
+  const kpi = useMemo(() => {
+    if (!summary) return null;
+    const scope =
+      view === "diario"
+        ? calendar.days.find((d) => d.date === to)
+        : calendar.weeks.find((w) => w.weekStart <= to && to <= w.weekEnd);
+    const rows =
+      scope && "weekStart" in scope
+        ? scope.days.flatMap((d) => d.ops)
+        : (scope?.ops ?? []);
+    const byKind = { produccion: 0, elaboracion: 0, terminacion: 0 };
+    for (const o of rows) byKind[o.kind] += o.laborCostMicro;
+    return {
+      totalMicro: scope?.totalMicro ?? 0,
+      opsCount: scope?.opsCount ?? 0,
+      byKind,
+      weekStart: scope && "weekStart" in scope ? scope.weekStart : to,
+      weekEnd: scope && "weekEnd" in scope ? scope.weekEnd : to,
+    };
+  }, [summary, view, calendar, to]);
+
   return (
     <div>
       <PageHeader
@@ -326,29 +348,33 @@ export function LaborPage() {
         </button>
       </div>
 
-      {summary && (
+      {summary && kpi && (
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Kpi
-            label="Total de mano de obra"
-            value={fmtMoney(summary.totals.totalMicro)}
-            sub={`${summary.totals.opsCount} operación(es)`}
-            tone={summary.totals.totalMicro > 0 ? "green" : undefined}
+            label={view === "diario" ? "Total del día" : "Total de la semana"}
+            value={fmtMoney(kpi.totalMicro)}
+            sub={
+              view === "diario"
+                ? `${kpi.opsCount} operación(es) · ${fmtFullDate(to)}`
+                : `${kpi.opsCount} operación(es) · sem. del ${dayShort(kpi.weekStart)} al ${dayShort(kpi.weekEnd)}`
+            }
+            tone={kpi.totalMicro > 0 ? "green" : undefined}
             big
           />
           <Kpi
             label="Producción de masas"
-            value={fmtMoney(summary.totals.byKind.produccion)}
-            sub="Elaboración de masas completas"
+            value={fmtMoney(kpi.byKind.produccion)}
+            sub={view === "diario" ? "Solo el día seleccionado" : "Solo la semana del día"}
             muted
           />
           <Kpi
             label="Elaboración de materias primas"
-            value={fmtMoney(summary.totals.byKind.elaboracion)}
+            value={fmtMoney(kpi.byKind.elaboracion)}
             muted
           />
           <Kpi
             label="Terminación / empaquetado"
-            value={fmtMoney(summary.totals.byKind.terminacion)}
+            value={fmtMoney(kpi.byKind.terminacion)}
             muted
           />
         </div>
