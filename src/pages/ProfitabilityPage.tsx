@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import { Badge, ErrorAlert, Kpi, fmtMoney, fmtQty, todayISO } from "../components/ui";
+import { Badge, DayFilter, ErrorAlert, Kpi, ScopeToggle, fmtMoney, fmtQty, todayISO, type DayScope } from "../components/ui";
 
 interface ReportResult {
   name: string;
@@ -46,6 +46,8 @@ function pct(part: number, whole: number): string {
 export function ProfitabilityPage() {
   const [from, setFrom] = useState(daysAgo(29));
   const [to, setTo] = useState(todayISO());
+  const [scope, setScope] = useState<DayScope>("day");
+  const [date, setDate] = useState(todayISO());
   const [days, setDays] = useState<DayRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -70,9 +72,12 @@ export function ProfitabilityPage() {
     }
   }, []);
 
+  const effFrom = scope === "day" ? date : from;
+  const effTo = scope === "day" ? date : to;
+
   useEffect(() => {
-    load(from, to);
-  }, [from, to, load]);
+    load(effFrom, effTo);
+  }, [effFrom, effTo, load]);
 
   const ventas = days.reduce((a, r) => a + r.ventas, 0);
   const cogs = days.reduce((a, r) => a + r.cogs, 0);
@@ -93,12 +98,12 @@ export function ProfitabilityPage() {
         subtitle="Resultado del período: ventas − costo de ventas − gastos"
         actions={
           <div className="flex gap-2">
-            <a className="btn btn-secondary" href={`/api/reports/rentabilidad/csv?from=${from}&to=${to}`} download>
+            <a className="btn btn-secondary" href={`/api/reports/rentabilidad/csv?from=${effFrom}&to=${effTo}`} download>
               CSV diario
             </a>
             <a
               className="btn btn-secondary"
-              href={`/api/reports/rentabilidad-productos/csv?from=${from}&to=${to}`}
+              href={`/api/reports/rentabilidad-productos/csv?from=${effFrom}&to=${effTo}`}
               download
             >
               CSV productos
@@ -112,21 +117,33 @@ export function ProfitabilityPage() {
       <ErrorAlert message={error} />
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div className="field">
-          <label>Desde</label>
-          <input type="date" max={to} value={from} onChange={(e) => setFrom(e.target.value)} />
-        </div>
-        <div className="field">
-          <label>Hasta</label>
-          <input type="date" max={todayISO()} value={to} onChange={(e) => setTo(e.target.value)} />
-        </div>
-        <button className="btn btn-secondary" onClick={() => load(from, to)}>
+        <ScopeToggle scope={scope} onChange={setScope} />
+        {scope === "day" ? (
+          <DayFilter date={date} onChange={setDate} />
+        ) : (
+          <>
+            <div className="field">
+              <label>Desde</label>
+              <input type="date" max={to} value={from} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Hasta</label>
+              <input type="date" max={todayISO()} value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
+          </>
+        )}
+        <button className="btn btn-secondary" onClick={() => load(effFrom, effTo)}>
           {loading ? "Calculando…" : "Actualizar"}
         </button>
         <span className="text-sm text-slate-500">
           {cerrados} día(s) cerrado(s) · {pendientes} abierto(s)
         </span>
       </div>
+      <p className="mb-3 text-xs text-slate-500">
+        {scope === "day"
+          ? "Mostrando el resultado del día seleccionado. Para ver otro día, cámbielo en el calendario."
+          : "Mostrando el resultado del período Desde–Hasta."}
+      </p>
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4 print-area">
         <Kpi label="Ingresos por ventas" value={fmtMoney(ventas)} big />

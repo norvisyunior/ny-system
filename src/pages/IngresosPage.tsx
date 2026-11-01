@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import { Badge, ErrorAlert, Kpi, fmtMoney, todayISO } from "../components/ui";
+import { Badge, DayFilter, ErrorAlert, Kpi, ScopeToggle, fmtMoney, todayISO, type DayScope } from "../components/ui";
 
 interface ReportColumn {
   key: string;
@@ -51,6 +51,8 @@ function daysAgo(n: number): string {
 export function IngresosPage() {
   const [from, setFrom] = useState(daysAgo(29));
   const [to, setTo] = useState(todayISO());
+  const [scope, setScope] = useState<DayScope>("day");
+  const [date, setDate] = useState(todayISO());
   const [rows, setRows] = useState<SaleRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -69,9 +71,12 @@ export function IngresosPage() {
     }
   }, []);
 
+  const effFrom = scope === "day" ? date : from;
+  const effTo = scope === "day" ? date : to;
+
   useEffect(() => {
-    load(from, to);
-  }, [from, to, load]);
+    load(effFrom, effTo);
+  }, [effFrom, effTo, load]);
 
   const conf = rows.filter((r) => r.estado === "confirmada");
   const totalCobrado = conf.reduce((a, r) => a + r.total, 0);
@@ -97,7 +102,7 @@ export function IngresosPage() {
         title="Ingresos"
         subtitle="Ventas cobradas por período · se registran en Operaciones → Ventas"
         actions={
-          <a className="btn btn-secondary" href={`/api/reports/ventas/csv?from=${from}&to=${to}`} download>
+          <a className="btn btn-secondary" href={`/api/reports/ventas/csv?from=${effFrom}&to=${effTo}`} download>
             Descargar CSV
           </a>
         }
@@ -105,15 +110,22 @@ export function IngresosPage() {
       <ErrorAlert message={error} />
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div className="field">
-          <label>Desde</label>
-          <input type="date" max={to} value={from} onChange={(e) => setFrom(e.target.value)} />
-        </div>
-        <div className="field">
-          <label>Hasta</label>
-          <input type="date" max={todayISO()} value={to} onChange={(e) => setTo(e.target.value)} />
-        </div>
-        <button className="btn btn-secondary" onClick={() => load(from, to)}>
+        <ScopeToggle scope={scope} onChange={setScope} />
+        {scope === "day" ? (
+          <DayFilter date={date} onChange={setDate} />
+        ) : (
+          <>
+            <div className="field">
+              <label>Desde</label>
+              <input type="date" max={to} value={from} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Hasta</label>
+              <input type="date" max={todayISO()} value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
+          </>
+        )}
+        <button className="btn btn-secondary" onClick={() => load(effFrom, effTo)}>
           {loading ? "Calculando…" : "Actualizar"}
         </button>
         <span className="text-sm text-slate-500">
@@ -121,6 +133,11 @@ export function IngresosPage() {
           {rows.length > conf.length ? ` · ${rows.length - conf.length} anulada(s)` : ""}
         </span>
       </div>
+      <p className="mb-3 text-xs text-slate-500">
+        {scope === "day"
+          ? "Mostrando las ventas del día seleccionado. Para ver otro día, cámbielo en el calendario."
+          : "Mostrando las ventas del período Desde–Hasta."}
+      </p>
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi label="Ingresos totales" value={fmtMoney(totalCobrado)} big />

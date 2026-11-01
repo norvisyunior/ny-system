@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import { Badge, ErrorAlert, Kpi, fmtMoney, fmtQty, todayISO } from "../components/ui";
+import { Badge, DayFilter, ErrorAlert, Kpi, ScopeToggle, fmtMoney, fmtQty, todayISO, type DayScope } from "../components/ui";
 
 interface ReportResult {
   name: string;
@@ -62,6 +62,8 @@ function daysAgo(n: number): string {
 export function CostosPage() {
   const [from, setFrom] = useState(daysAgo(29));
   const [to, setTo] = useState(todayISO());
+  const [scope, setScope] = useState<DayScope>("day");
+  const [date, setDate] = useState(todayISO());
   const [sales, setSales] = useState<SaleRow[]>([]);
   const [purchases, setPurchases] = useState<PurchaseRow[]>([]);
   const [productions, setProductions] = useState<ProductionRow[]>([]);
@@ -94,9 +96,12 @@ export function CostosPage() {
     }
   }, []);
 
+  const effFrom = scope === "day" ? date : from;
+  const effTo = scope === "day" ? date : to;
+
   useEffect(() => {
-    load(from, to);
-  }, [from, to, load]);
+    load(effFrom, effTo);
+  }, [effFrom, effTo, load]);
 
   const salesConf = sales.filter((r) => r.estado === "confirmada");
   const cogs = salesConf.reduce((a, r) => a + r.costo, 0);
@@ -127,10 +132,10 @@ export function CostosPage() {
         subtitle="Costo de ventas (PEPS), compras de materia prima y costo de producción"
         actions={
           <div className="flex gap-2">
-            <a className="btn btn-secondary" href={`/api/reports/compras/csv?from=${from}&to=${to}`} download>
+            <a className="btn btn-secondary" href={`/api/reports/compras/csv?from=${effFrom}&to=${effTo}`} download>
               CSV compras
             </a>
-            <a className="btn btn-secondary" href={`/api/reports/produccion/csv?from=${from}&to=${to}`} download>
+            <a className="btn btn-secondary" href={`/api/reports/produccion/csv?from=${effFrom}&to=${effTo}`} download>
               CSV producción
             </a>
           </div>
@@ -139,18 +144,30 @@ export function CostosPage() {
       <ErrorAlert message={error} />
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div className="field">
-          <label>Desde</label>
-          <input type="date" max={to} value={from} onChange={(e) => setFrom(e.target.value)} />
-        </div>
-        <div className="field">
-          <label>Hasta</label>
-          <input type="date" max={todayISO()} value={to} onChange={(e) => setTo(e.target.value)} />
-        </div>
-        <button className="btn btn-secondary" onClick={() => load(from, to)}>
+        <ScopeToggle scope={scope} onChange={setScope} />
+        {scope === "day" ? (
+          <DayFilter date={date} onChange={setDate} />
+        ) : (
+          <>
+            <div className="field">
+              <label>Desde</label>
+              <input type="date" max={to} value={from} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Hasta</label>
+              <input type="date" max={todayISO()} value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
+          </>
+        )}
+        <button className="btn btn-secondary" onClick={() => load(effFrom, effTo)}>
           {loading ? "Calculando…" : "Actualizar"}
         </button>
       </div>
+      <p className="mb-3 text-xs text-slate-500">
+        {scope === "day"
+          ? "Mostrando ventas, compras y producción del día seleccionado."
+          : "Mostrando ventas, compras y producción del período Desde–Hasta."}
+      </p>
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Costo de ventas" value={fmtMoney(cogs)} sub="COGS PEPS" big />
