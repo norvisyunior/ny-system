@@ -3,3 +3,8 @@ data/
 dist/
 *.log
 .DS_Store
+
+# Electron/empaquetado
+release/
+build/
+electron/server.cjs

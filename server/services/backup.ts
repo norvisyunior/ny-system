@@ -1,6 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { count, lt, type SQL } from "drizzle-orm";
 import { z } from "zod";
@@ -11,8 +10,10 @@ import { DEFAULT_DB_PATH, createDb, releaseHandle, setDbHandle, type DbHandle } 
 import { getSetting, setSetting } from "./settings";
 import { addDaysISO, todayISO } from "../domain/dates";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-export const BACKUP_DIR = path.join(ROOT, "data", "backups");
+// Carpeta de respaldos: configurable por entorno (Electron la fija en el perfil
+// de usuario); por defecto data/backups del proyecto (desarrollo).
+export const BACKUP_DIR =
+  process.env.NY_SYSTEM_BACKUP_DIR ?? path.join(process.cwd(), "data", "backups");
 const MAX_BACKUPS = 36;
 const FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.db$/;
 

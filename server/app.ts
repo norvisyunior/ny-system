@@ -3,6 +3,8 @@ import express, {
   type Request,
   type Response,
 } from "express";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { ZodError } from "zod";
 import { AppError, isAppError } from "./domain/errors";
 import { suppliersRouter } from "./routes/suppliers";
@@ -40,6 +42,21 @@ export function createApp(): express.Express {
 
   // registrar rutas de módulos aquí:
   registerRoutes(app);
+
+  // Empaquetado (Electron): sirve el UI compilado y remite las rutas de la
+  // SPA al index. En desarrollo no se define NY_SYSTEM_STATIC_DIR y el UI lo
+  // sirve Vite con su proxy /api.
+  const staticDir = process.env.NY_SYSTEM_STATIC_DIR;
+  if (staticDir && existsSync(path.join(staticDir, "index.html"))) {
+    app.use(express.static(staticDir));
+    app.use((req, res, next) => {
+      if (req.method === "GET" && !req.path.startsWith("/api")) {
+        res.sendFile(path.join(staticDir, "index.html"));
+        return;
+      }
+      next();
+    });
+  }
 
   app.use((_req, res) => {
     res.status(404).json({ ok: false, error: "Ruta no encontrada." });

@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "description": "NYORA — sistema de producción, inventario, costos y ventas",
+  "author": "NYORA",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k -n server,client \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch server/index.ts",
@@ -12,6 +15,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx db/migrate.ts",
     "seed:demo": "tsx db/seed-demo.ts",
+    "electron:dev": "concurrently -k -n server,client,electron \"npm:dev:server\" \"npm:dev:client\" \"wait-on -t 30000 http://localhost:5173 && cross-env NY_SYSTEM_DEV=1 electron .\"",
+    "electron:icons": "node scripts/make-icons.mjs",
+    "electron:build:server": "esbuild electron/server-entry.ts --bundle --platform=node --format=cjs --outfile=electron/server.cjs --log-level=warning",
+    "electron:build": "npm run build && npm run electron:build:server && npm run electron:icons && electron-builder --win",
     "test": "vitest run"
   },
   "dependencies": {
@@ -34,11 +41,18 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^37.2.0",
+    "electron-builder": "^25.0.5",
+    "esbuild": "^0.24.2",
+    "png-to-ico": "^2.1.8",
+    "sharp": "^0.33.5",
     "drizzle-kit": "^0.31.4",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wait-on": "^8.0.3"
   }
 }

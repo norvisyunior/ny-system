@@ -1,6 +1,5 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { eq } from "drizzle-orm";
@@ -10,9 +9,12 @@ import { UNITS_SEED, UnitsCatalog } from "../domain/units";
 
 export type DB = NodeSqliteDatabase;
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const MIGRATIONS_FOLDER = path.join(ROOT, "drizzle");
-export const DEFAULT_DB_PATH = path.join(ROOT, "data", "ny-system.db");
+// Empaquetado (Electron): el proceso main fija las rutas por entorno porque
+// el interior de app.asar es de solo lectura. En desarrollo se usa el proyecto.
+const ROOT = process.cwd();
+const MIGRATIONS_FOLDER = process.env.NY_SYSTEM_MIGRATIONS_DIR ?? path.join(ROOT, "drizzle");
+export const DEFAULT_DB_PATH =
+  process.env.NY_SYSTEM_DB_PATH ?? path.join(ROOT, "data", "ny-system.db");
 
 export interface DbHandle {
   db: DB;

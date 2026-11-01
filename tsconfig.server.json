@@ -18,5 +18,5 @@
       "@shared/*": ["shared/*"]
     }
   },
-  "include": ["server", "db", "shared", "tests", "vitest.config.ts", "drizzle.config.ts"]
+  "include": ["server", "db", "shared", "tests", "vitest.config.ts", "drizzle.config.ts", "electron/server-entry.ts"]
 }

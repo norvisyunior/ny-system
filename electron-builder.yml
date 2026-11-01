@@ -1,0 +1,32 @@
+# Empaquetado Windows (instalador NSIS one-click) — electron-builder
+appId: com.nyora.nysystem
+productName: NYORA
+
+directories:
+  output: release
+
+# Solo nuestro código compilado: la UI (Vite) y el runtime de Electron
+# (main + server bundle). Los node_modules de producción los añade
+# electron-builder automáticamente.
+files:
+  - electron/main.cjs
+  - electron/server.cjs
+  - dist/**/*
+
+# Las migraciones Drizzle deben existir como archivos reales en disco
+# (el migrador las lee con fs); van junto a resources del instalador.
+extraResources:
+  - from: drizzle
+    to: drizzle
+
+win:
+  target: nsis
+  icon: build/icon.ico
+
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: NYORA
+  runAfterFinish: true
